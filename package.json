@@ -2,16 +2,22 @@
   "name": "hrc-scormer-next",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "codegen": "kysely-codegen"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "dotenv": "^17.3.1",
+    "dotenv-expand": "^12.0.3",
+    "kysely": "^0.28.11",
     "lucide-react": "^0.577.0",
+    "mysql2": "^3.19.1",
     "next": "16.1.6",
     "radix-ui": "^1.4.3",
     "react": "19.2.3",
@@ -27,6 +33,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
+    "kysely-codegen": "^0.20.0",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
