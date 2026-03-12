@@ -4,8 +4,91 @@ import db from "@/lib/db"
 
 const DATABASE_PREFIX = process.env.DATABASE_PREFIX ?? ""
 
+type DraftRow = {
+  id: number
+  data: unknown
+  created_at: Date
+  updated_at: Date
+}
+
 type DraftInsertResult = {
   insertId: number | bigint
+}
+
+export async function GET(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url)
+    const q = searchParams.get("q")?.trim().toLowerCase() ?? ""
+
+    const draftRows = (await (db as any)
+      .selectFrom(`${DATABASE_PREFIX}drafts`)
+      .select(["id", "data", "created_at", "updated_at"])
+      .orderBy("created_at", "desc")
+      .execute()) as DraftRow[]
+
+    const parsedDrafts = draftRows.map((row) => {
+      const data =
+        typeof row.data === "string" ? JSON.parse(row.data) : row.data
+
+      return {
+        ...(data as Record<string, unknown>),
+        id: row.id,
+        isDraft: true,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+      }
+    })
+
+    const filteredDrafts =
+      q.length === 0
+        ? parsedDrafts
+        : parsedDrafts.filter((draft) => {
+            const draftRecord = draft as Record<string, unknown>
+
+            const searchableFields = [
+              draftRecord.course_title,
+              draftRecord.course_name,
+              draftRecord.course_description,
+              draftRecord.description,
+            ]
+              .filter(Boolean)
+              .map((value) => String(value).toLowerCase())
+
+            const query = q.toLowerCase()
+
+            return searchableFields.some((value) => value.includes(query))
+          })
+
+    return NextResponse.json(
+      {
+        items: filteredDrafts,
+        totalCount: filteredDrafts.length,
+      },
+      { status: 200 },
+    )
+  } catch (error) {
+    console.error("Error fetching drafts list", error)
+
+    const isDebug =
+      process.env.DEBUG === "TRUE" ||
+      process.env.DEBUG === "true" ||
+      process.env.DEBUG === "1"
+
+    const payload: Record<string, unknown> = {
+      error: "Errore nel recupero delle bozze",
+    }
+
+    if (isDebug) {
+      if (error instanceof Error) {
+        payload.message = error.message
+        payload.stack = error.stack
+      } else {
+        payload.details = String(error)
+      }
+    }
+
+    return NextResponse.json(payload, { status: 500 })
+  }
 }
 
 export async function POST(request: NextRequest) {

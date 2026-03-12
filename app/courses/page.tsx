@@ -2,10 +2,21 @@
 
 import Link from "next/link"
 import { useCallback, useEffect, useRef, useState } from "react"
+import { useRouter } from "next/navigation"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 
 type Course = {
   id: number
@@ -30,7 +41,14 @@ type ApiResponse = {
   hasMore: boolean
 }
 
+type DraftsApiResponse = {
+  items: Course[]
+  totalCount: number
+}
+
 export default function CoursesListPage() {
+  const router = useRouter()
+  const [drafts, setDrafts] = useState<Course[]>([])
   const [courses, setCourses] = useState<Course[]>([])
   const [search, setSearch] = useState("")
   const [debouncedSearch, setDebouncedSearch] = useState("")
@@ -39,8 +57,10 @@ export default function CoursesListPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [isInitialLoading, setIsInitialLoading] = useState(false)
   const [totalCount, setTotalCount] = useState<number>(0)
+  const [draftsTotalCount, setDraftsTotalCount] = useState<number>(0)
   const [error, setError] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<number | null>(null)
+  const [draftToDelete, setDraftToDelete] = useState<Course | null>(null)
   const isFetchingRef = useRef(false)
 
   useEffect(() => {
@@ -63,10 +83,12 @@ export default function CoursesListPage() {
 
       if (isReset) {
         setIsInitialLoading(true)
+        setDrafts([])
         setCourses([])
         setCursor(null)
         setHasMore(true)
         setTotalCount(0)
+        setDraftsTotalCount(0)
         setError(null)
       } else {
         setIsLoading(true)
@@ -75,6 +97,28 @@ export default function CoursesListPage() {
       isFetchingRef.current = true
 
       try {
+        if (isReset) {
+          const draftsParams = new URLSearchParams()
+          if (debouncedSearch) {
+            draftsParams.set("q", debouncedSearch)
+          }
+
+          const draftsRes = await fetch(
+            `/api/courses/drafts?${draftsParams.toString()}`,
+            {
+              method: "GET",
+            },
+          )
+
+          if (!draftsRes.ok) {
+            throw new Error("Errore nella chiamata API per le bozze")
+          }
+
+          const draftsData: DraftsApiResponse = await draftsRes.json()
+          setDrafts(draftsData.items)
+          setDraftsTotalCount(draftsData.totalCount)
+        }
+
         const params = new URLSearchParams()
         if (debouncedSearch) {
           params.set("q", debouncedSearch)
@@ -135,6 +179,28 @@ export default function CoursesListPage() {
     }
   }, [fetchCourses, hasMore, isInitialLoading, isLoading])
 
+  const handleConfirmDeleteDraft = useCallback(async () => {
+    if (!draftToDelete) return
+
+    try {
+      setDeletingId(draftToDelete.id)
+      const res = await fetch(`/api/courses/drafts/${draftToDelete.id}`, {
+        method: "DELETE",
+      })
+
+      if (!res.ok && res.status !== 204) {
+        throw new Error("Errore nella cancellazione della bozza")
+      }
+
+      setDrafts((prev) => prev.filter((c) => c.id !== draftToDelete.id))
+    } catch (err) {
+      console.error(err)
+      setError("Non è stato possibile eliminare la bozza.")
+    } finally {
+      setDeletingId(null)
+      setDraftToDelete(null)
+    }
+  }, [draftToDelete])
 
   return (
     <div className="min-h-screen bg-zinc-50 py-10 text-zinc-900">
@@ -170,7 +236,7 @@ export default function CoursesListPage() {
               <span>
                 Risultati:{" "}
                 <span className="font-medium text-zinc-700">
-                  {totalCount}
+                  {totalCount + draftsTotalCount}
                 </span>
               </span>
               {isInitialLoading && <span>Caricamento...</span>}
@@ -184,7 +250,7 @@ export default function CoursesListPage() {
           )}
 
           <div className="divide-y divide-zinc-100">
-            {courses.map((course) => {
+            {[...drafts, ...courses].map((course) => {
               const baseSocialUrl = process.env.NEXT_PUBLIC_SOCIAL_URL ?? process.env.SOCIAL_URL ?? ""
               const imageFileName =
                 course.image_url_landscape ||
@@ -262,58 +328,69 @@ export default function CoursesListPage() {
                         Creato il {createdAt}
                       </span>
                     )}
-                    {course.isDraft && (
+                    <div className="flex gap-2">
                       <Button
                         type="button"
                         variant="outline"
                         size="xs"
-                        disabled={deletingId === course.id}
-                        onClick={async () => {
-                          if (!window.confirm("Vuoi davvero eliminare questa bozza?")) {
-                            return
-                          }
+                        onClick={() => {
+                          const titleParam =
+                            course.course_title ??
+                            course.course_name ??
+                            ""
+                          const descriptionParam =
+                            course.course_description ??
+                            course.description ??
+                            ""
 
-                          try {
-                            setDeletingId(course.id)
-                            const res = await fetch(
-                              `/api/courses/drafts/${course.id}`,
-                              {
-                                method: "DELETE",
-                              },
-                            )
-
-                            if (!res.ok && res.status !== 204) {
-                              throw new Error("Errore nella cancellazione della bozza")
+                          const params = new URLSearchParams()
+                          if (!course.isDraft) {
+                            if (titleParam) {
+                              params.set("title", titleParam)
                             }
-
-                            setCourses((prev) =>
-                              prev.filter((c) => c.id !== course.id),
-                            )
-                            setTotalCount((prev) =>
-                              prev > 0 ? prev - 1 : prev,
-                            )
-                          } catch (err) {
-                            console.error(err)
-                            setError(
-                              "Non è stato possibile eliminare la bozza.",
-                            )
-                          } finally {
-                            setDeletingId(null)
+                            if (descriptionParam) {
+                              params.set("description", descriptionParam)
+                            }
+                            if (course.category_name) {
+                              params.set("category", course.category_name)
+                            }
+                          } else {
+                            params.set("draft", "1")
                           }
+
+                          const query = params.toString()
+                          router.push(
+                            `/courses/${course.id}/edit${
+                              query ? `?${query}` : ""
+                            }`,
+                          )
                         }}
                       >
-                        {deletingId === course.id
-                          ? "Eliminazione…"
-                          : "Elimina bozza"}
+                        Modifica
                       </Button>
-                    )}
-
+                      {course.isDraft && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="xs"
+                          disabled={deletingId === course.id}
+                          onClick={() => setDraftToDelete(course)}
+                        >
+                          {deletingId === course.id
+                            ? "Eliminazione…"
+                            : "Elimina bozza"}
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 </article>
               )
             })}
 
-            {!isInitialLoading && courses.length === 0 && !error && (
+            {!isInitialLoading &&
+              drafts.length === 0 &&
+              courses.length === 0 &&
+              !error && (
               <div className="py-6 text-center text-sm text-zinc-500">
                 Nessun corso trovato.
               </div>
@@ -328,6 +405,34 @@ export default function CoursesListPage() {
           </div>
         </section>
       </div>
+
+      <AlertDialog
+        open={!!draftToDelete}
+        onOpenChange={(open: boolean) => {
+          if (!open) {
+            setDraftToDelete(null)
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminare questa bozza?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Questa azione non può essere annullata. La bozza del corso verrà
+              rimossa definitivamente dall&apos;elenco locale.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annulla</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDeleteDraft}
+              disabled={!!draftToDelete && deletingId === draftToDelete.id}
+            >
+              Conferma eliminazione
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

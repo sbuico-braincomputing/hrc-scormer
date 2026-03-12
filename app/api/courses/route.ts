@@ -1,17 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 
-import db from "@/lib/db"
 import socialDb from "@/lib/social-db"
 
 const PAGE_SIZE = 10
-const DATABASE_PREFIX = process.env.DATABASE_PREFIX ?? ""
-
-type DraftRow = {
-  id: number
-  data: unknown
-  created_at: Date
-  updated_at: Date
-}
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
@@ -28,12 +19,6 @@ export async function GET(request: NextRequest) {
   const cursor = cursorParam ? Number(cursorParam) : undefined
 
   try {
-    const draftsPromise = (db as any)
-      .selectFrom(`${DATABASE_PREFIX}drafts`)
-      .select(["id", "data", "created_at", "updated_at"])
-      .orderBy("created_at", "desc")
-      .execute() as Promise<DraftRow[]>
-
     let baseQuery = socialDb
       .selectFrom("lms_provider_learning as courses")
       .leftJoin(
@@ -70,52 +55,10 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const [draftRows, totalResult] = await Promise.all([
-      draftsPromise,
-      baseQuery
-        .clearSelect()
-        .select((eb) => eb.fn.countAll<number>().as("totalCount"))
-        .executeTakeFirst(),
-    ])
-
-    const parsedDrafts = draftRows.map((row) => {
-      const data =
-        typeof row.data === "string" ? JSON.parse(row.data) : row.data
-
-      return {
-        ...(data as Record<string, unknown>),
-        id: row.id,
-        isDraft: true,
-        created_at: row.created_at,
-        updated_at: row.updated_at,
-      }
-    })
-
-    const filteredDrafts =
-      q.length === 0
-        ? parsedDrafts
-        : parsedDrafts.filter((draft) => {
-            const draftRecord = draft as Record<string, unknown>
-
-            const searchableFields = [
-              draftRecord.course_title,
-              draftRecord.course_name,
-              draftRecord.course_description,
-              draftRecord.description,
-            ]
-              .filter(Boolean)
-              .map((value) => String(value).toLowerCase())
-
-            const query = q.toLowerCase()
-
-            return searchableFields.some((value) =>
-              value.includes(query),
-            )
-          })
-
-    const draftsCount = filteredDrafts.length
-    const coursesCount = totalResult?.totalCount ?? 0
-    const totalCount = draftsCount + coursesCount
+    const totalResult = await baseQuery
+      .clearSelect()
+      .select((eb) => eb.fn.countAll<number>().as("totalCount"))
+      .executeTakeFirst()
 
     let query = baseQuery
 
@@ -131,12 +74,15 @@ export async function GET(request: NextRequest) {
     const nextCursor =
       courses.length === limit ? courses[courses.length - 1]?.id ?? null : null
 
-    return NextResponse.json({
-      items: [...filteredDrafts, ...courses],
-      totalCount,
-      nextCursor,
-      hasMore: Boolean(nextCursor),
-    })
+    return NextResponse.json(
+      {
+        items: courses,
+        totalCount: totalResult?.totalCount ?? 0,
+        nextCursor,
+        hasMore: Boolean(nextCursor),
+      },
+      { status: 200 },
+    )
   } catch (error) {
     console.error("Error fetching courses list", error)
 
