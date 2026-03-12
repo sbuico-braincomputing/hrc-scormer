@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label"
 
 type Course = {
   id: number
+  isDraft?: boolean
   image_url_landscape: string | null
   image_url_portrait: string | null
   image_url_square: string | null
@@ -39,6 +40,7 @@ export default function CoursesListPage() {
   const [isInitialLoading, setIsInitialLoading] = useState(false)
   const [totalCount, setTotalCount] = useState<number>(0)
   const [error, setError] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<number | null>(null)
   const isFetchingRef = useRef(false)
 
   useEffect(() => {
@@ -231,10 +233,16 @@ export default function CoursesListPage() {
                       )}
                     </div>
                     <div className="space-y-1">
-                      <h2 className="text-sm font-semibold tracking-tight">
-                        {title}  <span className="rounded-full bg-zinc-100 px-2 py-0.5 font-mono text-[10px] text-zinc-700">
+                      <h2 className="text-sm font-semibold tracking-tight flex items-center gap-2">
+                        <span>{title}</span>
+
+                        {course.isDraft ? (
+                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800">
+                            Bozza locale
+                          </span>
+                        ) : <span className="rounded-full bg-zinc-100 px-2 py-0.5 font-mono text-[10px] text-zinc-700">
                           ID: {course.id}
-                        </span>
+                        </span>}
                       </h2>
                       {category && (
                         <p className="text-[11px] font-medium uppercase tracking-wide text-zinc-500">
@@ -253,6 +261,51 @@ export default function CoursesListPage() {
                       <span className="whitespace-nowrap">
                         Creato il {createdAt}
                       </span>
+                    )}
+                    {course.isDraft && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="xs"
+                        disabled={deletingId === course.id}
+                        onClick={async () => {
+                          if (!window.confirm("Vuoi davvero eliminare questa bozza?")) {
+                            return
+                          }
+
+                          try {
+                            setDeletingId(course.id)
+                            const res = await fetch(
+                              `/api/courses/drafts/${course.id}`,
+                              {
+                                method: "DELETE",
+                              },
+                            )
+
+                            if (!res.ok && res.status !== 204) {
+                              throw new Error("Errore nella cancellazione della bozza")
+                            }
+
+                            setCourses((prev) =>
+                              prev.filter((c) => c.id !== course.id),
+                            )
+                            setTotalCount((prev) =>
+                              prev > 0 ? prev - 1 : prev,
+                            )
+                          } catch (err) {
+                            console.error(err)
+                            setError(
+                              "Non è stato possibile eliminare la bozza.",
+                            )
+                          } finally {
+                            setDeletingId(null)
+                          }
+                        }}
+                      >
+                        {deletingId === course.id
+                          ? "Eliminazione…"
+                          : "Elimina bozza"}
+                      </Button>
                     )}
 
                   </div>

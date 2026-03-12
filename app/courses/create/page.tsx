@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import Image from "next/image"
+import { useRouter } from "next/navigation"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -77,6 +78,7 @@ function getVideoThumbnail(url: string): string | undefined {
 }
 
 export default function CourseCreatePage() {
+  const router = useRouter()
   const [form, setForm] = useState<CourseFormState>({
     title: "",
     description: "",
@@ -97,6 +99,9 @@ export default function CourseCreatePage() {
     })),
   })
 
+  const [isSaving, setIsSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
   function updateModule(index: number, updater: (current: Module) => Module) {
     setForm((prev) => {
       const modules = [...prev.modules]
@@ -105,10 +110,65 @@ export default function CourseCreatePage() {
     })
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    // TODO: integrare con il backend quando sarà pronto
-    console.log("Course form submit", form)
+
+    if (!form.title.trim()) {
+      return
+    }
+
+    setIsSaving(true)
+    setError(null)
+
+    try {
+      const payload = {
+        course_title: form.title,
+        course_name: form.title,
+        course_description: form.description,
+        description: form.description,
+        image_url_landscape: null,
+        image_url_portrait: null,
+        image_url_square: null,
+        course_scorm_file: form.scormFileName ?? null,
+        date_from: form.dateFrom || null,
+        date_to: form.dateTo || null,
+        category_id: form.category || null,
+        company: form.company || null,
+        modules: form.modules.map((module) => ({
+          title: module.title,
+          description: module.description,
+          video_url: module.videoUrl,
+          thumbnail_url: module.thumbnailUrl ?? null,
+          document_id: module.selectedDocumentId ?? null,
+          trainers: module.trainers,
+        })),
+      }
+
+      const res = await fetch("/api/courses/drafts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        const message =
+          typeof data.error === "string"
+            ? data.error
+            : "Impossibile salvare il corso"
+        throw new Error(message)
+      }
+
+      await res.json()
+      router.push("/courses")
+    } catch (err) {
+      console.error("Error saving course draft", err)
+      setError(
+        err instanceof Error ? err.message : "Errore inatteso nel salvataggio",
+      )
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   return (
@@ -123,9 +183,19 @@ export default function CourseCreatePage() {
               Compila le informazioni del corso, carica il file SCORM e
               configura i moduli.
             </p>
+            {error && (
+              <p className="mt-2 text-sm text-red-600">
+                {error}
+              </p>
+            )}
           </div>
-          <Button type="submit" form="course-form" className="self-start">
-            Salva corso
+          <Button
+            type="submit"
+            form="course-form"
+            className="self-start"
+            disabled={isSaving}
+          >
+            {isSaving ? "Salvataggio in corso..." : "Salva corso"}
           </Button>
         </header>
 
