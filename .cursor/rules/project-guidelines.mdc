@@ -1,0 +1,55 @@
+---
+description: Linee guida per mantenere stile, struttura e organizzazione di HRC SCORMer
+alwaysApply: true
+---
+
+# HRC SCORMer – Linee guida per Cursor
+
+- **Stack principale**
+  - Next.js App Router (`app/`), React con TypeScript.
+  - UI basata su Tailwind CSS e componenti `@/components/ui/*` (stile shadcn).
+  - Testi dell’interfaccia in **italiano**.
+
+- **Stile dei componenti React**
+  - Usa sempre **function component** con `export default function Nome()` o `export function Nome()`.
+  - Metti `"use client"` solo dove serve stato, effetti o API del browser.
+  - Mantieni i componenti **presentationali** snelli; estrai logica riutilizzabile in hook o funzioni helper.
+
+- **Tipi e dati**
+  - Definisci i tipi `type`/`interface` localmente al file quando specifici (es. `type Course = { ... }` in `app/courses/page.tsx`).
+  - Mantieni i nomi parlanti e coerenti con quelli esistenti (es. `Course`, `ApiResponse`, `DraftsApiResponse`).
+
+- **Database e sorgenti dati**
+  - Esistono **due livelli di persistenza**:
+    - **Database remoto**: sorgente ufficiale dei corsi, documenti, video, ecc. Tutti i dati pubblicati arrivano da qui e vengono letti tramite endpoint remoti o API già esistenti.
+    - **Database locale**: usato per salvare **bozze** di corsi/modifiche prima della pubblicazione. Le bozze non sono ancora sincronizzate col database remoto.
+  - Quando aggiungi nuove funzionalità:
+    - Se la funzionalità riguarda dati **pubblicati/ufficiali**, leggili sempre dal **database remoto** tramite le API già previste (non duplicare la stessa struttura nel DB locale).
+    - Se serve una modalità bozza o di lavoro in corso, salva gli stati intermedi nel **database locale**, seguendo pattern esistenti (es. bozza corso) e marcando i record come bozza.
+    - Non mescolare nei componenti UI le sorgenti: fai sì che sia la route API a decidere se leggere da remoto o locale e restituisca al client un formato uniforme.
+
+- **API e fetch**
+  - Usa le route API di Next (`app/api/.../route.ts`) per la logica server-side.
+  - Dal client usa sempre `fetch` verso endpoint `/api/...` con gestione errori user–friendly in italiano.
+  - Evita di duplicare la logica di formattazione dei dati: quando puoi, estrai helper riutilizzabili.
+
+- **UI e layout**
+  - Usa i componenti UI esistenti (`Button`, `Input`, `Label`, `AlertDialog`, ecc.) prima di crearne di nuovi.
+  - Mantieni le classi Tailwind coerenti con le pagine esistenti (background chiaro, testo `zinc`, card con `rounded-lg bg-white shadow-sm`).
+  - Allinea headings, spaziature e struttura delle pagine alle pagine corsi già presenti.
+
+- **Navigazione e routing**
+  - Per reindirizzamenti lato server usa `redirect("/percorso")` nelle route server (come in `app/page.tsx`).
+  - Per la navigazione client usa `useRouter().push(...)` o `Link` di `next/link`.
+  - I nuovi percorsi devono seguire la struttura già esistente (`/courses`, `/courses/[id]/edit`, `/courses/create`, ecc.).
+
+- **Quando aggiungi una nuova funzionalità**
+  - Inserisci le nuove pagine sotto `app/` seguendo la gerarchia attuale (es. `app/courses/nuova-funzione/page.tsx`).
+  - Riusa pattern già usati: debounce della ricerca, paginazione con cursore, gestione bozza/persistente, modali di conferma.
+  - Mantieni messaggi, label e testi in italiano, con tono coerente con le altre pagine.
+  - Evita commenti banali; aggiungi commenti solo dove la logica non è ovvia o ci sono trade–off importanti.
+
+- **Performance e UX**
+  - Evita chiamate API ridondanti; usa memoizzazione e `useCallback` quando appropriato, come nella lista corsi.
+  - Per azioni distruttive (elimina, reset, ecc.) usa dialog di conferma come l’`AlertDialog` esistente.
+

@@ -3,51 +3,35 @@
 import { useEffect, useState } from "react"
 import Image from "next/image"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
+import { Trash2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
-
-type Document = {
-  id: string
-  title?: string | null
-  name?: string | null
-  filename?: string | null
-}
+import CourseModulesSection, {
+  DocumentRef,
+  Module,
+} from "@/app/courses/_components/course-modules-section"
 
 type Category = {
   id: string
   lms_name: string
 }
 
-type Trainer = {
-  name: string
-  role: string
-  company: string
-}
-
-type Module = {
-  title: string
-  description: string
-  videoUrl: string
-  thumbnailUrl?: string
-  videoDocumentId?: string
-  videoSearch: string
-  selectedDocumentId?: string
-  documentSearch: string
-  trainers: Trainer[]
-}
-
 type CourseFormState = {
   title: string
   description: string
   imageFile?: File
+  uploadedImageUrl?: string
   dateFrom: string
   dateTo: string
   category: string
   company: string
   scormFileName?: string
+  scormFile?: File
+  uploadedScormUrl?: string
+  scormOriginalName?: string
   modules: Module[]
 }
 
@@ -78,15 +62,22 @@ function getVideoThumbnail(url: string): string | undefined {
   }
 }
 
-function getDocumentTitle(doc: Document): string {
+function getDocumentTitle(doc: DocumentRef): string {
   return (doc.title ?? doc.name ?? "").trim()
 }
 
-function getDocumentFilename(doc: Document): string {
+function getDocumentFilename(doc: DocumentRef): string {
   return (doc.filename ?? "").trim()
 }
 
-function isVideoDocument(doc: Document): boolean {
+function getBasename(path: string | null | undefined): string | undefined {
+  if (!path) return undefined
+  const trimmed = path.split("?")[0].split("#")[0]
+  const parts = trimmed.split("/")
+  return parts[parts.length - 1] || undefined
+}
+
+function isVideoDocument(doc: DocumentRef): boolean {
   const filename = getDocumentFilename(doc).toLowerCase()
   if (!filename) return false
 
@@ -110,7 +101,7 @@ export default function CourseEditPage() {
   const [categories, setCategories] = useState<Category[]>([])
   const [isLoadingCategories, setIsLoadingCategories] = useState(true)
   const [categoriesError, setCategoriesError] = useState<string | null>(null)
-  const [documents, setDocuments] = useState<Document[]>([])
+  const [documents, setDocuments] = useState<DocumentRef[]>([])
   const [isLoadingDocuments, setIsLoadingDocuments] = useState(true)
   const [documentsError, setDocumentsError] = useState<string | null>(null)
 
@@ -139,6 +130,25 @@ export default function CourseEditPage() {
   const [isSaving, setIsSaving] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [isUploadingFiles, setIsUploadingFiles] = useState(false)
+
+  async function deleteUploadedFile(path: string | undefined) {
+    if (!path || !path.startsWith("/uploads/")) {
+      return
+    }
+
+    try {
+      await fetch("/api/uploads", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ path }),
+      })
+    } catch (err) {
+      console.error("Errore eliminazione file upload", err)
+    }
+  }
 
   useEffect(() => {
     const id = params.id
@@ -204,20 +214,29 @@ export default function CourseEditPage() {
             title,
             description,
             imageFile: undefined,
+            uploadedImageUrl: draft.image_url_landscape ?? undefined,
             dateFrom: draft.date_from ?? "",
             dateTo: draft.date_to ?? "",
             category: draft.category_id ?? "",
             company: draft.company ?? "",
             scormFileName: draft.course_scorm_file ?? undefined,
+            scormFile: undefined,
+            uploadedScormUrl: draft.course_scorm_file ?? undefined,
+            scormOriginalName:
+              draft.course_scorm_original_name ??
+              draft.scormOriginalName ??
+              draft.scormFileName ??
+              undefined,
             modules: normalizedModules,
           })
         } else {
-          const title =
-            searchParams.get("title") ?? ""
-          const description =
-            searchParams.get("description") ?? ""
+          const title = searchParams.get("title") ?? ""
+          const description = searchParams.get("description") ?? ""
           const category = searchParams.get("category") ?? ""
           const company = searchParams.get("company") ?? ""
+          const imageUrl = searchParams.get("imageUrl") ?? undefined
+          const scormUrl = searchParams.get("scormUrl") ?? undefined
+          const scormName = searchParams.get("scormName") ?? undefined
 
           setForm((prev) => ({
             ...prev,
@@ -225,6 +244,11 @@ export default function CourseEditPage() {
             description,
             category,
             company,
+            uploadedImageUrl: imageUrl ?? prev.uploadedImageUrl,
+            scormFile: prev.scormFile,
+            uploadedScormUrl: scormUrl ?? prev.uploadedScormUrl,
+            scormFileName: scormUrl ?? prev.scormFileName,
+            scormOriginalName: scormName ?? prev.scormOriginalName,
           }))
         }
       } catch (err) {
@@ -248,12 +272,12 @@ export default function CourseEditPage() {
         setIsLoadingDocuments(true)
         setDocumentsError(null)
 
-        const res = await fetch("/api/documents")
+        const res = await fetch("/api/documents?limit=100&type=doc")
         if (!res.ok) {
           throw new Error("Impossibile caricare l'elenco documenti")
         }
 
-        const data = (await res.json()) as Document[]
+        const data = (await res.json()) as DocumentRef[]
         setDocuments(data)
       } catch (err) {
         console.error("Error loading documents", err)
@@ -298,47 +322,6 @@ export default function CourseEditPage() {
     loadCategories()
   }, [])
 
-  function updateModule(index: number, updater: (current: Module) => Module) {
-    setForm((prev) => {
-      const modules = [...prev.modules]
-      modules[index] = updater(modules[index])
-      return { ...prev, modules }
-    })
-  }
-
-  async function updateVideoFromDocument(index: number, doc: Document) {
-    const filename = getDocumentFilename(doc)
-
-    updateModule(index, (current) => ({
-      ...current,
-      videoDocumentId: doc.id,
-      videoSearch: "",
-      videoUrl: filename,
-      thumbnailUrl: getVideoThumbnail(filename),
-    }))
-
-    if (!filename) {
-      return
-    }
-
-    try {
-      const res = await fetch(
-        `/api/video-thumbnail?url=${encodeURIComponent(filename)}`,
-      )
-      if (!res.ok) return
-
-      const data = (await res.json()) as { thumbnailUrl?: string | null }
-      if (data.thumbnailUrl) {
-        updateModule(index, (current) => ({
-          ...current,
-          thumbnailUrl: data.thumbnailUrl ?? current.thumbnailUrl,
-        }))
-      }
-    } catch (err) {
-      console.error("Error fetching video thumbnail", err)
-    }
-  }
-
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
 
@@ -358,6 +341,46 @@ export default function CourseEditPage() {
     setError(null)
 
     try {
+      let imageUrl: string | null = form.uploadedImageUrl ?? null
+      let scormUrl: string | null = form.uploadedScormUrl ?? null
+
+      if (form.imageFile || form.scormFile) {
+        setIsUploadingFiles(true)
+        const uploadFormData = new FormData()
+        if (form.imageFile) {
+          uploadFormData.append("courseImage", form.imageFile)
+        }
+        if (form.scormFile) {
+          uploadFormData.append("scormFile", form.scormFile)
+        }
+
+        const uploadRes = await fetch("/api/uploads", {
+          method: "POST",
+          body: uploadFormData,
+        })
+
+        if (!uploadRes.ok) {
+          const data = await uploadRes.json().catch(() => ({}))
+          const message =
+            typeof (data as any).error === "string"
+              ? (data as any).error
+              : "Errore nel caricamento dei file"
+          throw new Error(message)
+        }
+
+        const uploadData = (await uploadRes.json()) as {
+          imageUrl?: string
+          scormUrl?: string
+        }
+
+        if (uploadData.imageUrl) {
+          imageUrl = uploadData.imageUrl
+        }
+        if (uploadData.scormUrl) {
+          scormUrl = uploadData.scormUrl
+        }
+      }
+
       const id = params.id
       if (!id) {
         throw new Error("ID bozza non valido")
@@ -368,10 +391,12 @@ export default function CourseEditPage() {
         course_name: form.title,
         course_description: form.description,
         description: form.description,
-        image_url_landscape: null,
+        image_url_landscape: imageUrl,
         image_url_portrait: null,
         image_url_square: null,
-        course_scorm_file: form.scormFileName ?? null,
+        course_scorm_file: scormUrl,
+        course_scorm_original_name:
+          form.scormOriginalName ?? form.scormFile?.name ?? null,
         date_from: form.dateFrom || null,
         date_to: form.dateTo || null,
         category_id: form.category || null,
@@ -409,6 +434,7 @@ export default function CourseEditPage() {
         err instanceof Error ? err.message : "Errore inatteso nel salvataggio",
       )
     } finally {
+      setIsUploadingFiles(false)
       setIsSaving(false)
     }
   }
@@ -434,7 +460,7 @@ export default function CourseEditPage() {
             type="submit"
             form="course-form"
             className="self-start"
-            disabled={isSaving || isLoading}
+            disabled={isSaving || isLoading || !isDraft}
           >
             {isSaving ? "Salvataggio in corso..." : "Salva modifiche"}
           </Button>
@@ -485,54 +511,109 @@ export default function CourseEditPage() {
                   />
                 </div>
 
-                <div className="grid gap-4 sm:grid-cols-[minmax(0,2fr)_minmax(0,1.2fr)] sm:items-start">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="courseImage">Immagine corso</Label>
-                    <Input
-                      id="courseImage"
-                      type="file"
-                      accept="image/*"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0]
-                        setForm((prev) => ({
-                          ...prev,
-                          imageFile: file,
-                        }))
-                      }}
-                    />
-                    <p className="mt-1 text-xs text-zinc-500">
-                      Carica l&apos;immagine di copertina del corso. Verrà salvata e poi
-                      mostrata nella lista corsi.
-                    </p>
-                  </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="courseImage">Immagine corso</Label>
+                  <div className="grid gap-3 sm:grid-cols-[minmax(0,1.6fr)_minmax(0,1.1fr)] sm:items-center">
+                    <div className="space-y-1.5 text-xs text-zinc-500">
+                      <p>
+                        Carica l&apos;immagine di copertina del corso. Verrà salvata e poi
+                        mostrata nella lista corsi.
+                      </p>
+                      <p className="text-[11px] text-zinc-500">
+                        Usa un formato orizzontale leggibile. Dimensione consigliata
+                        almeno 600×600px.
+                      </p>
+                      <p className="text-[11px] text-zinc-500">
+                        Puoi cliccare sull&apos;anteprima o trascinare un file
+                        direttamente sopra.
+                      </p>
+                    </div>
 
-                  <div className="flex flex-col items-center justify-center gap-2 rounded-md border border-dashed border-zinc-200 bg-zinc-50 p-3">
-                    {form.imageFile ? (
-                      <>
-                        <div className="relative h-28 w-full overflow-hidden rounded-md bg-black/5">
-                          <Image
-                            src={URL.createObjectURL(form.imageFile)}
-                            alt="Immagine corso"
-                            fill
-                            className="object-cover"
-                          />
-                        </div>
-                        <span className="text-xs text-zinc-500">
-                          Anteprima immagine corso
-                        </span>
-                      </>
-                    ) : (
-                      <>
-                        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-white text-xs text-zinc-400">
-                          Nessuna
-                          <br />
-                          immagine
-                        </div>
-                        <span className="text-xs text-zinc-400">
-                          Incolla un URL valido per vedere l&apos;anteprima
-                        </span>
-                      </>
-                    )}
+                    <div
+                      className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-md border border-dashed border-zinc-300 bg-zinc-50 p-2 text-center text-[11px] text-zinc-500 transition hover:border-zinc-400 hover:bg-zinc-100"
+                      onDragOver={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        const file = e.dataTransfer.files?.[0]
+                        if (file && file.type.startsWith("image/")) {
+                          setForm((prev) => ({
+                            ...prev,
+                            imageFile: file,
+                          }))
+                        }
+                      }}
+                      onClick={(e) => {
+                        // Evita che il click sulla X riapra il file picker
+                        if ((e.target as HTMLElement).dataset.dismiss === "image-remove") {
+                          return
+                        }
+                        const input = document.getElementById(
+                          "courseImageInput",
+                        ) as HTMLInputElement | null
+                        input?.click()
+                      }}
+                    >
+                      <input
+                        id="courseImageInput"
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0]
+                          setForm((prev) => ({
+                            ...prev,
+                            imageFile: file,
+                          }))
+                        }}
+                      />
+
+                      <div className="relative w-full max-w-[180px] overflow-hidden rounded-md bg-black/5" style={{ aspectRatio: "1 / 1" }}>
+                        {form.imageFile || form.uploadedImageUrl ? (
+                          <>
+                            <Image
+                              src={
+                                form.imageFile
+                                  ? URL.createObjectURL(form.imageFile)
+                                  : (form.uploadedImageUrl as string)
+                              }
+                              alt="Immagine corso"
+                              fill
+                              className="object-cover"
+                            />
+                            <button
+                              type="button"
+                              data-dismiss="image-remove"
+                              className="absolute right-1 top-1 inline-flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-white hover:bg-red-600 hover:text-white"
+                              onClick={async (e) => {
+                                e.stopPropagation()
+                                const previousUrl = form.uploadedImageUrl
+                                setForm((prev) => ({
+                                  ...prev,
+                                  imageFile: undefined,
+                                  uploadedImageUrl: undefined,
+                                }))
+                                if (previousUrl) {
+                                  await deleteUploadedFile(previousUrl)
+                                }
+                              }}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                            </button>
+                          </>
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center text-[11px] text-zinc-400">
+                            Nessuna immagine
+                          </div>
+                        )}
+                      </div>
+                      <span className="text-[11px] font-medium text-zinc-700">
+                        Clicca o trascina qui l&apos;immagine
+                      </span>
+                    </div>
                   </div>
                 </div>
 
@@ -619,480 +700,116 @@ export default function CourseEditPage() {
 
                 <div className="space-y-1.5">
                   <Label htmlFor="scorm">File SCORM (.zip)</Label>
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                    <Input
-                      id="scorm"
-                      type="file"
-                      accept=".zip"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0]
-                        setForm((prev) => ({
-                          ...prev,
-                          scormFileName: file?.name,
-                        }))
-                      }}
-                    />
-                    {form.scormFileName && (
-                      <span className="text-xs text-zinc-500">
-                        Selezionato: {form.scormFileName}
-                      </span>
+                  <div className="space-y-2">
+                    {(form.scormFile || form.uploadedScormUrl) ? (
+                      <div className="flex items-start gap-3 rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-800">
+                        <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-zinc-200 text-[11px] font-semibold text-zinc-800">
+                          ZIP
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="truncate font-medium">
+                                {form.scormOriginalName ||
+                                  form.scormFile?.name ||
+                                  getBasename(form.scormFileName) ||
+                                  getBasename(form.uploadedScormUrl) ||
+                                  "File SCORM caricato"}
+                              </div>
+                              {form.uploadedScormUrl && (
+                                <div className="mt-0.5 break-all text-[10px] text-zinc-600">
+                                  {form.uploadedScormUrl}
+                                </div>
+                              )}
+                            </div>
+                            <button
+                              type="button"
+                              className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-zinc-200 text-zinc-900 hover:bg-red-600 hover:text-white"
+                              onClick={async () => {
+                                const previousUrl = form.uploadedScormUrl
+                                setForm((prev) => ({
+                                  ...prev,
+                                  scormFile: undefined,
+                                  scormFileName: undefined,
+                                  uploadedScormUrl: undefined,
+                              scormOriginalName: undefined,
+                                }))
+                                if (previousUrl) {
+                                  await deleteUploadedFile(previousUrl)
+                                }
+                              }}
+                            >
+                              <Trash2 className="h-3 w-3" aria-hidden="true" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div
+                        className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-md border border-dashed border-zinc-300 bg-zinc-50 p-4 text-center text-xs text-zinc-500 transition hover:border-zinc-400 hover:bg-zinc-100"
+                        onDragOver={(e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          const file = e.dataTransfer.files?.[0]
+                          if (file && file.name.toLowerCase().endsWith(".zip")) {
+                            setForm((prev) => ({
+                              ...prev,
+                              scormFile: file,
+                              scormFileName: file.name,
+                            }))
+                          }
+                        }}
+                        onClick={() => {
+                          const input = document.getElementById(
+                            "scormInput",
+                          ) as HTMLInputElement | null
+                          input?.click()
+                        }}
+                      >
+                        <input
+                          id="scormInput"
+                          type="file"
+                          accept=".zip"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0]
+                            setForm((prev) => ({
+                              ...prev,
+                              scormFile: file,
+                              scormFileName: file?.name,
+                            }))
+                          }}
+                        />
+                        <span className="text-[11px] font-medium text-zinc-700">
+                          Clicca per scegliere il file SCORM (.zip)
+                        </span>
+                        <span className="text-[11px] text-zinc-500">
+                          oppure trascinalo qui
+                        </span>
+                      </div>
                     )}
                   </div>
                 </div>
               </div>
             </section>
 
-            <section className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h2 className="text-lg font-semibold tracking-tight">Moduli</h2>
-              </div>
-
-              <div className="space-y-5">
-                {form.modules.map((module, index) => {
-                  const selectedDocument = documents.find(
-                    (doc) => doc.id === module.selectedDocumentId,
-                  )
-
-                  const selectedVideoDocument = documents.find(
-                    (doc) => doc.id === module.videoDocumentId,
-                  )
-
-                  const filteredDocuments = documents.filter((doc) => {
-                    const search = (module.documentSearch || "")
-                      .toLowerCase()
-                      .split(" ")
-                      .filter(Boolean)
-
-                    if (search.length === 0) return true
-
-                    const title = getDocumentTitle(doc).toLowerCase()
-                    const filename = getDocumentFilename(doc).toLowerCase()
-                    const id = (doc.id ?? "").toString().toLowerCase()
-
-                    return search.every(
-                      (term) =>
-                        title.includes(term) ||
-                        filename.includes(term) ||
-                        id.includes(term),
-                    )
-                  })
-
-                  const filteredVideoDocuments = documents.filter((doc) => {
-                    if (!isVideoDocument(doc)) return false
-
-                    const search = (module.videoSearch || "")
-                      .toLowerCase()
-                      .split(" ")
-                      .filter(Boolean)
-
-                    if (search.length === 0) return true
-
-                    const title = getDocumentTitle(doc).toLowerCase()
-                    const filename = getDocumentFilename(doc).toLowerCase()
-                    const id = (doc.id ?? "").toString().toLowerCase()
-
-                    return search.every(
-                      (term) =>
-                        title.includes(term) ||
-                        filename.includes(term) ||
-                        id.includes(term),
-                    )
-                  })
-
-                  const visibleDocuments = filteredDocuments.slice(0, 8)
-                  const visibleVideoDocuments = filteredVideoDocuments.slice(0, 8)
-
-                  return (
-                    <div
-                      key={index}
-                      className="space-y-4 rounded-lg border border-zinc-200 bg-white p-4 shadow-sm"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <h3 className="text-sm font-semibold tracking-tight">
-                          Modulo {index + 1}
-                        </h3>
-                      </div>
-
-                      <div className="grid gap-4">
-                        <div className="space-y-1.5">
-                          <Label htmlFor={`module-title-${index}`}>
-                            Titolo
-                          </Label>
-                          <Input
-                            id={`module-title-${index}`}
-                            value={module.title}
-                            onChange={(e) =>
-                              updateModule(index, (current) => ({
-                                ...current,
-                                title: e.target.value,
-                              }))
-                            }
-                            placeholder="Titolo del modulo"
-                          />
-                        </div>
-
-                        <div className="space-y-1.5">
-                          <Label htmlFor={`module-description-${index}`}>
-                            Descrizione
-                          </Label>
-                          <Textarea
-                            id={`module-description-${index}`}
-                            value={module.description}
-                            onChange={(e) =>
-                              updateModule(index, (current) => ({
-                                ...current,
-                                description: e.target.value,
-                              }))
-                            }
-                            placeholder="Descrizione sintetica del modulo..."
-                            rows={3}
-                          />
-                        </div>
-
-                        <div className="grid gap-3 sm:grid-cols-[minmax(0,2fr)_minmax(0,1.2fr)] sm:items-start">
-                        <div className="space-y-1.5">
-                          <Label>Video (da tabella documents)</Label>
-                          <div className="space-y-2">
-                            <Input
-                              placeholder="Cerca per titolo, filename o ID documento video..."
-                              value={module.videoSearch}
-                              onChange={(e) =>
-                                updateModule(index, (current) => ({
-                                  ...current,
-                                  videoSearch: e.target.value,
-                                }))
-                              }
-                            />
-                            <div className="min-w-[150px] text-xs text-zinc-500">
-                              {selectedVideoDocument ? (
-                                <span>
-                                  Selezionato:{" "}
-                                  <span className="font-medium">
-                                    {getDocumentTitle(selectedVideoDocument) ||
-                                      selectedVideoDocument.id}
-                                  </span>{" "}
-                                  <span className="text-[10px] text-zinc-400">
-                                    ({selectedVideoDocument.id})
-                                  </span>
-                                </span>
-                              ) : (
-                                <span className="text-zinc-400">
-                                  Nessun video selezionato
-                                </span>
-                              )}
-                            </div>
-                            <div className="max-h-32 space-y-1 overflow-auto rounded-md border border-zinc-200 bg-zinc-50 p-1.5 text-xs">
-                              {isLoadingDocuments && (
-                                <div className="rounded px-2 py-1 text-zinc-400">
-                                  Caricamento documenti video...
-                                </div>
-                              )}
-                              {documentsError && !isLoadingDocuments && (
-                                <div className="rounded px-2 py-1 text-red-500">
-                                  {documentsError}
-                                </div>
-                              )}
-                              {!isLoadingDocuments &&
-                                !documentsError &&
-                                filteredVideoDocuments.length === 0 && (
-                                  <div className="rounded px-2 py-1 text-zinc-400">
-                                    Nessun documento video trovato
-                                  </div>
-                                )}
-                              {!isLoadingDocuments &&
-                                !documentsError &&
-                                visibleVideoDocuments.map((doc) => {
-                                  const title = getDocumentTitle(doc)
-                                  const filename = getDocumentFilename(doc)
-
-                                  return (
-                                    <button
-                                      key={doc.id}
-                                      type="button"
-                                      className={`flex w-full items-center justify-between rounded px-2 py-1 text-left transition hover:bg-white ${
-                                        module.videoDocumentId === doc.id
-                                          ? "bg-white text-zinc-900"
-                                          : "text-zinc-700"
-                                      }`}
-                                      onClick={() =>
-                                        updateVideoFromDocument(index, doc)
-                                      }
-                                    >
-                                      <span className="mr-2 flex min-w-0 flex-col">
-                                        <span className="truncate">
-                                          {title || doc.id}
-                                        </span>
-                                        {filename && (
-                                          <span className="truncate text-[10px] text-zinc-400">
-                                            {filename}
-                                          </span>
-                                        )}
-                                      </span>
-                                      <span className="shrink-0 rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-mono text-zinc-500">
-                                        {doc.id}
-                                      </span>
-                                    </button>
-                                  )
-                                })}
-                            </div>
-                            {module.videoUrl && (
-                              <div className="rounded-md border border-zinc-200 bg-zinc-50 p-2 text-xs text-zinc-500">
-                                URL video selezionato:
-                                <div className="mt-0.5 truncate font-mono text-[11px] text-zinc-600">
-                                  {module.videoUrl}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                          <div className="flex flex-col items-center justify-center gap-2 rounded-md border border-dashed border-zinc-200 bg-zinc-50 p-3">
-                            {module.thumbnailUrl ? (
-                              <>
-                                <div className="relative h-28 w-full overflow-hidden rounded-md bg-black/5">
-                                  <Image
-                                    src={module.thumbnailUrl}
-                                    alt="Anteprima video"
-                                    fill
-                                    className="object-cover"
-                                  />
-                                </div>
-                                <span className="text-xs text-zinc-500">
-                                  Anteprima video
-                                </span>
-                              </>
-                            ) : (
-                              <>
-                                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-white text-xs text-zinc-400">
-                                  Nessuna
-                                  <br />
-                                  anteprima
-                                </div>
-                                <span className="text-xs text-zinc-400">
-                                Seleziona un video YouTube o Vimeo dai
-                                documenti per vedere la thumbnail
-                                </span>
-                              </>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="space-y-2">
-                          <Label>Documento associato</Label>
-                          <div className="space-y-1.5">
-                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                              <Input
-                                placeholder="Cerca per titolo, filename o ID documento..."
-                                value={module.documentSearch}
-                                onChange={(e) =>
-                                  updateModule(index, (current) => ({
-                                    ...current,
-                                    documentSearch: e.target.value,
-                                  }))
-                                }
-                              />
-                              <div className="min-w-[150px] text-xs text-zinc-500">
-                                {selectedDocument ? (
-                                  <span>
-                                    Selezionato:{" "}
-                                    <span className="font-medium">
-                                      {getDocumentTitle(selectedDocument) ||
-                                        selectedDocument.id}
-                                    </span>{" "}
-                                    <span className="text-[10px] text-zinc-400">
-                                      ({selectedDocument.id})
-                                    </span>
-                                  </span>
-                                ) : (
-                                  <span className="text-zinc-400">
-                                    Nessun documento selezionato
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-
-                            <div className="max-h-32 space-y-1 overflow-auto rounded-md border border-zinc-200 bg-zinc-50 p-1.5 text-xs">
-                              {isLoadingDocuments && (
-                                <div className="rounded px-2 py-1 text-zinc-400">
-                                  Caricamento documenti...
-                                </div>
-                              )}
-                              {documentsError && !isLoadingDocuments && (
-                                <div className="rounded px-2 py-1 text-red-500">
-                                  {documentsError}
-                                </div>
-                              )}
-                              {!isLoadingDocuments &&
-                                !documentsError &&
-                                filteredDocuments.length === 0 && (
-                                  <div className="rounded px-2 py-1 text-zinc-400">
-                                    Nessun documento trovato
-                                  </div>
-                                )}
-                              {!isLoadingDocuments &&
-                                !documentsError &&
-                                visibleDocuments.map((doc) => {
-                                  const title = getDocumentTitle(doc)
-                                  const filename = getDocumentFilename(doc)
-
-                                  return (
-                                    <button
-                                      key={doc.id}
-                                      type="button"
-                                      className={`flex w-full items-center justify-between rounded px-2 py-1 text-left transition hover:bg-white ${
-                                        module.selectedDocumentId === doc.id
-                                          ? "bg-white text-zinc-900"
-                                          : "text-zinc-700"
-                                      }`}
-                                      onClick={() =>
-                                        updateModule(index, (current) => ({
-                                          ...current,
-                                          selectedDocumentId: doc.id,
-                                        }))
-                                      }
-                                    >
-                                      <span className="mr-2 flex min-w-0 flex-col">
-                                        <span className="truncate">
-                                          {title || doc.id}
-                                        </span>
-                                        {filename && (
-                                          <span className="truncate text-[10px] text-zinc-400">
-                                            {filename}
-                                          </span>
-                                        )}
-                                      </span>
-                                      <span className="shrink-0 rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-mono text-zinc-500">
-                                        {doc.id}
-                                      </span>
-                                    </button>
-                                  )
-                                })}
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="space-y-3 rounded-md border border-zinc-100 bg-zinc-50 p-3">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-sm font-semibold">
-                              Trainer
-                            </span>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                updateModule(index, (current) => ({
-                                  ...current,
-                                  trainers: [
-                                    ...current.trainers,
-                                    {
-                                      name: "",
-                                      role: "",
-                                      company: form.company,
-                                    },
-                                  ],
-                                }))
-                              }}
-                            >
-                              Aggiungi trainer
-                            </Button>
-                          </div>
-
-                          {module.trainers.length === 0 ? (
-                            <p className="text-xs text-zinc-500">
-                              Nessun trainer aggiunto. Clicca su{" "}
-                              <span className="font-medium">
-                                “Aggiungi trainer”
-                              </span>{" "}
-                              per inserire il primo.
-                            </p>
-                          ) : (
-                            <div className="space-y-3">
-                              {module.trainers.map((trainer, tIndex) => (
-                                <div
-                                  key={tIndex}
-                                  className="grid gap-2 rounded-md border border-zinc-200 bg-white p-2.5 sm:grid-cols-3"
-                                >
-                                  <div className="space-y-1">
-                                    <Label
-                                      htmlFor={`module-${index}-trainer-name-${tIndex}`}
-                                      className="text-xs"
-                                    >
-                                      Nome
-                                    </Label>
-                                    <Input
-                                      id={`module-${index}-trainer-name-${tIndex}`}
-                                      value={trainer.name}
-                                      onChange={(e) =>
-                                        updateModule(index, (current) => {
-                                          const trainers = [...current.trainers]
-                                          trainers[tIndex] = {
-                                            ...trainers[tIndex],
-                                            name: e.target.value,
-                                          }
-                                          return { ...current, trainers }
-                                        })
-                                      }
-                                      placeholder="Nome e cognome"
-                                    />
-                                  </div>
-                                  <div className="space-y-1">
-                                    <Label
-                                      htmlFor={`module-${index}-trainer-role-${tIndex}`}
-                                      className="text-xs"
-                                    >
-                                      Ruolo
-                                    </Label>
-                                    <Input
-                                      id={`module-${index}-trainer-role-${tIndex}`}
-                                      value={trainer.role}
-                                      onChange={(e) =>
-                                        updateModule(index, (current) => {
-                                          const trainers = [...current.trainers]
-                                          trainers[tIndex] = {
-                                            ...trainers[tIndex],
-                                            role: e.target.value,
-                                          }
-                                          return { ...current, trainers }
-                                        })
-                                      }
-                                      placeholder="Es. Formatore interno"
-                                    />
-                                  </div>
-                                  <div className="space-y-1">
-                                    <Label
-                                      htmlFor={`module-${index}-trainer-company-${tIndex}`}
-                                      className="text-xs"
-                                    >
-                                      Azienda
-                                    </Label>
-                                    <Input
-                                      id={`module-${index}-trainer-company-${tIndex}`}
-                                      value={trainer.company}
-                                      onChange={(e) =>
-                                        updateModule(index, (current) => {
-                                          const trainers = [...current.trainers]
-                                          trainers[tIndex] = {
-                                            ...trainers[tIndex],
-                                            company: e.target.value,
-                                          }
-                                          return { ...current, trainers }
-                                        })
-                                      }
-                                      placeholder="Azienda del trainer"
-                                    />
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </section>
+            <CourseModulesSection
+              course={form}
+              modules={form.modules}
+              documents={documents}
+              isLoadingDocuments={isLoadingDocuments}
+              documentsError={documentsError}
+              onModulesChange={(updater) =>
+                setForm((prev) => ({
+                  ...prev,
+                  modules: updater(prev.modules),
+                }))
+              }
+            />
           </form>
         )}
       </div>

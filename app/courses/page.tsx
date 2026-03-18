@@ -251,17 +251,36 @@ export default function CoursesListPage() {
 
           <div className="divide-y divide-zinc-100">
             {[...drafts, ...courses].map((course) => {
-              const baseSocialUrl = process.env.NEXT_PUBLIC_SOCIAL_URL ?? process.env.SOCIAL_URL ?? ""
+              const baseSocialUrl =
+                process.env.NEXT_PUBLIC_SOCIAL_URL ??
+                process.env.SOCIAL_URL ??
+                ""
               const imageFileName =
                 course.image_url_landscape ||
                 course.image_url_square ||
                 course.image_url_portrait ||
                 ""
 
-              const imageUrl =
-                baseSocialUrl && imageFileName
-                  ? `${baseSocialUrl.replace(/\/$/, "")}/img/lmshrc/${imageFileName.replace('/img/lmshrc/', '').replace(/^\//, "")}`
-                  : null
+              let imageUrl: string | null = null
+
+              if (imageFileName) {
+                // Se è un URL assoluto o un path in /uploads, usalo direttamente
+                if (
+                  imageFileName.startsWith("http://") ||
+                  imageFileName.startsWith("https://") ||
+                  imageFileName.startsWith("/uploads/")
+                ) {
+                  imageUrl = imageFileName
+                } else if (baseSocialUrl) {
+                  // Compatibilità con immagini legacy in /img/lmshrc
+                  imageUrl = `${baseSocialUrl.replace(
+                    /\/$/,
+                    "",
+                  )}/img/lmshrc/${imageFileName
+                    .replace("/img/lmshrc/", "")
+                    .replace(/^\//, "")}`
+                }
+              }
 
               const title =
                 course.course_title ??
@@ -304,7 +323,7 @@ export default function CoursesListPage() {
 
                         {course.isDraft ? (
                           <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800">
-                            Bozza locale
+                            Bozza
                           </span>
                         ) : <span className="rounded-full bg-zinc-100 px-2 py-0.5 font-mono text-[10px] text-zinc-700">
                           ID: {course.id}
@@ -353,6 +372,17 @@ export default function CoursesListPage() {
                             }
                             if (course.category_name) {
                               params.set("category", course.category_name)
+                            }
+
+                            if (imageUrl) {
+                              params.set("imageUrl", imageUrl)
+                            }
+                            if (course.course_scorm_file) {
+                              params.set("scormUrl", course.course_scorm_file)
+                              const scormName =
+                                course.course_scorm_file.split("/").pop() ??
+                                course.course_scorm_file
+                              params.set("scormName", scormName)
                             }
                           } else {
                             params.set("draft", "1")

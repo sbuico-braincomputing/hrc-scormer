@@ -8,35 +8,14 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
-
-type Document = {
-  id: string
-  title?: string | null
-  name?: string | null
-  filename?: string | null
-}
+import CourseModulesSection, {
+  DocumentRef,
+  Module,
+} from "@/app/courses/_components/course-modules-section"
 
 type Category = {
   id: string
   lms_name: string
-}
-
-type Trainer = {
-  name: string
-  role: string
-  company: string
-}
-
-type Module = {
-  title: string
-  description: string
-  videoUrl: string
-  thumbnailUrl?: string
-  videoDocumentId?: string
-  videoSearch: string
-  selectedDocumentId?: string
-  documentSearch: string
-  trainers: Trainer[]
 }
 
 type CourseFormState = {
@@ -51,62 +30,12 @@ type CourseFormState = {
   modules: Module[]
 }
 
-function getVideoThumbnail(url: string): string | undefined {
-  try {
-    const parsed = new URL(url)
-
-    if (
-      parsed.hostname.includes("youtube.com") ||
-      parsed.hostname.includes("youtu.be")
-    ) {
-      let videoId = ""
-
-      if (parsed.hostname.includes("youtu.be")) {
-        videoId = parsed.pathname.replace("/", "")
-      } else {
-        videoId = parsed.searchParams.get("v") ?? ""
-      }
-
-      if (videoId) {
-        return `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`
-      }
-    }
-
-    return undefined
-  } catch {
-    return undefined
-  }
-}
-
-function getDocumentTitle(doc: Document): string {
-  return (doc.title ?? doc.name ?? "").trim()
-}
-
-function getDocumentFilename(doc: Document): string {
-  return (doc.filename ?? "").trim()
-}
-
-function isVideoDocument(doc: Document): boolean {
-  const filename = getDocumentFilename(doc).toLowerCase()
-  if (!filename) return false
-
-  if (
-    filename.includes("youtube.com") ||
-    filename.includes("youtu.be") ||
-    filename.includes("vimeo.com")
-  ) {
-    return true
-  }
-
-  return false
-}
-
 export default function CourseCreatePage() {
   const router = useRouter()
   const [categories, setCategories] = useState<Category[]>([])
   const [isLoadingCategories, setIsLoadingCategories] = useState(true)
   const [categoriesError, setCategoriesError] = useState<string | null>(null)
-  const [documents, setDocuments] = useState<Document[]>([])
+  const [documents, setDocuments] = useState<DocumentRef[]>([])
   const [isLoadingDocuments, setIsLoadingDocuments] = useState(true)
   const [documentsError, setDocumentsError] = useState<string | null>(null)
   const [form, setForm] = useState<CourseFormState>({
@@ -140,12 +69,12 @@ export default function CourseCreatePage() {
         setIsLoadingDocuments(true)
         setDocumentsError(null)
 
-        const res = await fetch("/api/documents")
+        const res = await fetch("/api/documents?limit=100&type=all")
         if (!res.ok) {
           throw new Error("Impossibile caricare l'elenco documenti")
         }
 
-        const data = (await res.json()) as Document[]
+        const data = (await res.json()) as DocumentRef[]
         setDocuments(data)
       } catch (err) {
         console.error("Error loading documents", err)
@@ -189,47 +118,6 @@ export default function CourseCreatePage() {
 
     loadCategories()
   }, [])
-
-  async function updateVideoFromDocument(index: number, doc: Document) {
-    const filename = getDocumentFilename(doc)
-
-    updateModule(index, (current) => ({
-      ...current,
-      videoDocumentId: doc.id,
-      videoSearch: "",
-      videoUrl: filename,
-      thumbnailUrl: getVideoThumbnail(filename),
-    }))
-
-    if (!filename) {
-      return
-    }
-
-    try {
-      const res = await fetch(
-        `/api/video-thumbnail?url=${encodeURIComponent(filename)}`,
-      )
-      if (!res.ok) return
-
-      const data = (await res.json()) as { thumbnailUrl?: string | null }
-      if (data.thumbnailUrl) {
-        updateModule(index, (current) => ({
-          ...current,
-          thumbnailUrl: data.thumbnailUrl ?? current.thumbnailUrl,
-        }))
-      }
-    } catch (err) {
-      console.error("Error fetching video thumbnail", err)
-    }
-  }
-
-  function updateModule(index: number, updater: (current: Module) => Module) {
-    setForm((prev) => {
-      const modules = [...prev.modules]
-      modules[index] = updater(modules[index])
-      return { ...prev, modules }
-    })
-  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -517,458 +405,19 @@ export default function CourseCreatePage() {
             </div>
           </section>
 
-          <section className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold tracking-tight">Moduli</h2>
-              
-            </div>
-
-            <div className="space-y-5">
-              {form.modules.map((module, index) => {
-                const selectedDocument = documents.find(
-                  (doc) => doc.id === module.selectedDocumentId,
-                )
-
-                const selectedVideoDocument = documents.find(
-                  (doc) => doc.id === module.videoDocumentId,
-                )
-
-                const filteredDocuments = documents.filter((doc) => {
-                  const search = (module.documentSearch || "")
-                    .toLowerCase()
-                    .split(" ")
-                    .filter(Boolean)
-
-                  if (search.length === 0) return true
-
-                  const title = getDocumentTitle(doc).toLowerCase()
-                  const filename = getDocumentFilename(doc).toLowerCase()
-                  const id = (doc.id ?? "").toString().toLowerCase()
-
-                  return search.every(
-                    (term) =>
-                      title.includes(term) ||
-                      filename.includes(term) ||
-                      id.includes(term),
-                  )
-                })
-
-                const filteredVideoDocuments = documents.filter((doc) => {
-                  if (!isVideoDocument(doc)) return false
-
-                  const search = (module.videoSearch || "")
-                    .toLowerCase()
-                    .split(" ")
-                    .filter(Boolean)
-
-                  if (search.length === 0) return true
-
-                  const title = getDocumentTitle(doc).toLowerCase()
-                  const filename = getDocumentFilename(doc).toLowerCase()
-                  const id = (doc.id ?? "").toString().toLowerCase()
-
-                  return search.every(
-                    (term) =>
-                      title.includes(term) ||
-                      filename.includes(term) ||
-                      id.includes(term),
-                  )
-                })
-
-                const visibleDocuments = filteredDocuments.slice(0, 8)
-                const visibleVideoDocuments = filteredVideoDocuments.slice(0, 8)
-
-                return (
-                  <div
-                    key={index}
-                    className="space-y-4 rounded-lg border border-zinc-200 bg-white p-4 shadow-sm"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <h3 className="text-sm font-semibold tracking-tight">
-                        Modulo {index + 1}
-                      </h3>
-                    </div>
-
-                    <div className="grid gap-4">
-                      <div className="space-y-1.5">
-                        <Label htmlFor={`module-title-${index}`}>
-                          Titolo
-                        </Label>
-                        <Input
-                          id={`module-title-${index}`}
-                          value={module.title}
-                          onChange={(e) =>
-                            updateModule(index, (current) => ({
-                              ...current,
-                              title: e.target.value,
-                            }))
-                          }
-                          placeholder="Titolo del modulo"
-                        />
-                      </div>
-
-                      <div className="space-y-1.5">
-                        <Label htmlFor={`module-description-${index}`}>
-                          Descrizione
-                        </Label>
-                        <Textarea
-                          id={`module-description-${index}`}
-                          value={module.description}
-                          onChange={(e) =>
-                            updateModule(index, (current) => ({
-                              ...current,
-                              description: e.target.value,
-                            }))
-                          }
-                          placeholder="Descrizione sintetica del modulo..."
-                          rows={3}
-                        />
-                      </div>
-
-                      <div className="grid gap-3 sm:grid-cols-[minmax(0,2fr)_minmax(0,1.2fr)] sm:items-start">
-                        <div className="space-y-1.5">
-                          <Label>Video (da tabella documents)</Label>
-                          <div className="space-y-2">
-                            <Input
-                              placeholder="Cerca per titolo, filename o ID documento video..."
-                              value={module.videoSearch}
-                              onChange={(e) =>
-                                updateModule(index, (current) => ({
-                                  ...current,
-                                  videoSearch: e.target.value,
-                                }))
-                              }
-                            />
-                            <div className="min-w-[150px] text-xs text-zinc-500">
-                              {selectedVideoDocument ? (
-                                <span>
-                                  Selezionato:{" "}
-                                  <span className="font-medium">
-                                    {getDocumentTitle(selectedVideoDocument) ||
-                                      selectedVideoDocument.id}
-                                  </span>{" "}
-                                  <span className="text-[10px] text-zinc-400">
-                                    ({selectedVideoDocument.id})
-                                  </span>
-                                </span>
-                              ) : (
-                                <span className="text-zinc-400">
-                                  Nessun video selezionato
-                                </span>
-                              )}
-                            </div>
-                            <div className="max-h-32 space-y-1 overflow-auto rounded-md border border-zinc-200 bg-zinc-50 p-1.5 text-xs">
-                              {isLoadingDocuments && (
-                                <div className="rounded px-2 py-1 text-zinc-400">
-                                  Caricamento documenti video...
-                                </div>
-                              )}
-                              {documentsError && !isLoadingDocuments && (
-                                <div className="rounded px-2 py-1 text-red-500">
-                                  {documentsError}
-                                </div>
-                              )}
-                              {!isLoadingDocuments &&
-                                !documentsError &&
-                                filteredVideoDocuments.length === 0 && (
-                                  <div className="rounded px-2 py-1 text-zinc-400">
-                                    Nessun documento video trovato
-                                  </div>
-                                )}
-                              {!isLoadingDocuments &&
-                                !documentsError &&
-                                visibleVideoDocuments.map((doc) => {
-                                  const title = getDocumentTitle(doc)
-                                  const filename = getDocumentFilename(doc)
-
-                                  return (
-                                    <button
-                                      key={doc.id}
-                                      type="button"
-                                      className={`flex w-full items-center justify-between rounded px-2 py-1 text-left transition hover:bg-white ${
-                                        module.videoDocumentId === doc.id
-                                          ? "bg-white text-zinc-900"
-                                          : "text-zinc-700"
-                                      }`}
-                                      onClick={() =>
-                                        updateVideoFromDocument(index, doc)
-                                      }
-                                    >
-                                      <span className="mr-2 flex min-w-0 flex-col">
-                                        <span className="truncate">
-                                          {title || doc.id}
-                                        </span>
-                                        {filename && (
-                                          <span className="truncate text-[10px] text-zinc-400">
-                                            {filename}
-                                          </span>
-                                        )}
-                                      </span>
-                                      <span className="shrink-0 rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-mono text-zinc-500">
-                                        {doc.id}
-                                      </span>
-                                    </button>
-                                  )
-                                })}
-                            </div>
-                            {module.videoUrl && (
-                              <div className="rounded-md border border-zinc-200 bg-zinc-50 p-2 text-xs text-zinc-500">
-                                URL video selezionato:
-                                <div className="mt-0.5 truncate font-mono text-[11px] text-zinc-600">
-                                  {module.videoUrl}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="flex flex-col items-center justify-center gap-2 rounded-md border border-dashed border-zinc-200 bg-zinc-50 p-3">
-                          {module.thumbnailUrl ? (
-                            <>
-                              <div className="relative h-28 w-full overflow-hidden rounded-md bg-black/5">
-                                <Image
-                                  src={module.thumbnailUrl}
-                                  alt="Anteprima video"
-                                  fill
-                                  className="object-cover"
-                                />
-                              </div>
-                              <span className="text-xs text-zinc-500">
-                                Anteprima video
-                              </span>
-                            </>
-                          ) : (
-                            <>
-                              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-white text-xs text-zinc-400">
-                                Nessuna
-                                <br />
-                                anteprima
-                              </div>
-                              <span className="text-xs text-zinc-400">
-                                Seleziona un video YouTube o Vimeo dai
-                                documenti per vedere la thumbnail
-                              </span>
-                            </>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label>Documento associato</Label>
-                        <div className="space-y-1.5">
-                          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                            <Input
-                              placeholder="Cerca per titolo, filename o ID documento..."
-                              value={module.documentSearch}
-                              onChange={(e) =>
-                                updateModule(index, (current) => ({
-                                  ...current,
-                                  documentSearch: e.target.value,
-                                }))
-                              }
-                            />
-                            <div className="min-w-[150px] text-xs text-zinc-500">
-                              {selectedDocument ? (
-                                <span>
-                                  Selezionato:{" "}
-                                  <span className="font-medium">
-                                    {getDocumentTitle(selectedDocument) ||
-                                      selectedDocument.id}
-                                  </span>{" "}
-                                  <span className="text-[10px] text-zinc-400">
-                                    ({selectedDocument.id})
-                                  </span>
-                                </span>
-                              ) : (
-                                <span className="text-zinc-400">
-                                  Nessun documento selezionato
-                                </span>
-                              )}
-                            </div>
-                          </div>
-
-                          <div className="max-h-32 space-y-1 overflow-auto rounded-md border border-zinc-200 bg-zinc-50 p-1.5 text-xs">
-                            {isLoadingDocuments && (
-                              <div className="rounded px-2 py-1 text-zinc-400">
-                                Caricamento documenti...
-                              </div>
-                            )}
-                            {documentsError && !isLoadingDocuments && (
-                              <div className="rounded px-2 py-1 text-red-500">
-                                {documentsError}
-                              </div>
-                            )}
-                            {!isLoadingDocuments &&
-                              !documentsError &&
-                              filteredDocuments.length === 0 && (
-                                <div className="rounded px-2 py-1 text-zinc-400">
-                                  Nessun documento trovato
-                                </div>
-                              )}
-                            {!isLoadingDocuments &&
-                              !documentsError &&
-                              visibleDocuments.map((doc) => {
-                                const title = getDocumentTitle(doc)
-                                const filename = getDocumentFilename(doc)
-
-                                return (
-                                  <button
-                                    key={doc.id}
-                                    type="button"
-                                    className={`flex w-full items-center justify-between rounded px-2 py-1 text-left transition hover:bg-white ${
-                                      module.selectedDocumentId === doc.id
-                                        ? "bg-white text-zinc-900"
-                                        : "text-zinc-700"
-                                    }`}
-                                    onClick={() =>
-                                      updateModule(index, (current) => ({
-                                        ...current,
-                                        selectedDocumentId: doc.id,
-                                      }))
-                                    }
-                                  >
-                                    <span className="mr-2 flex min-w-0 flex-col">
-                                      <span className="truncate">
-                                        {title || doc.id}
-                                      </span>
-                                      {filename && (
-                                        <span className="truncate text-[10px] text-zinc-400">
-                                          {filename}
-                                        </span>
-                                      )}
-                                    </span>
-                                    <span className="shrink-0 rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-mono text-zinc-500">
-                                      {doc.id}
-                                    </span>
-                                  </button>
-                                )
-                              })}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="space-y-3 rounded-md border border-zinc-100 bg-zinc-50 p-3">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-sm font-semibold">
-                            Trainer
-                          </span>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              updateModule(index, (current) => ({
-                                ...current,
-                                trainers: [
-                                  ...current.trainers,
-                                  {
-                                    name: "",
-                                    role: "",
-                                    company: form.company,
-                                  },
-                                ],
-                              }))
-                            }}
-                          >
-                            Aggiungi trainer
-                          </Button>
-                        </div>
-
-                        {module.trainers.length === 0 ? (
-                          <p className="text-xs text-zinc-500">
-                            Nessun trainer aggiunto. Clicca su{" "}
-                            <span className="font-medium">
-                              “Aggiungi trainer”
-                            </span>{" "}
-                            per inserire il primo.
-                          </p>
-                        ) : (
-                          <div className="space-y-3">
-                            {module.trainers.map((trainer, tIndex) => (
-                              <div
-                                key={tIndex}
-                                className="grid gap-2 rounded-md border border-zinc-200 bg-white p-2.5 sm:grid-cols-3"
-                              >
-                                <div className="space-y-1">
-                                  <Label
-                                    htmlFor={`module-${index}-trainer-name-${tIndex}`}
-                                    className="text-xs"
-                                  >
-                                    Nome
-                                  </Label>
-                                  <Input
-                                    id={`module-${index}-trainer-name-${tIndex}`}
-                                    value={trainer.name}
-                                    onChange={(e) =>
-                                      updateModule(index, (current) => {
-                                        const trainers = [...current.trainers]
-                                        trainers[tIndex] = {
-                                          ...trainers[tIndex],
-                                          name: e.target.value,
-                                        }
-                                        return { ...current, trainers }
-                                      })
-                                    }
-                                    placeholder="Nome e cognome"
-                                  />
-                                </div>
-                                <div className="space-y-1">
-                                  <Label
-                                    htmlFor={`module-${index}-trainer-role-${tIndex}`}
-                                    className="text-xs"
-                                  >
-                                    Ruolo
-                                  </Label>
-                                  <Input
-                                    id={`module-${index}-trainer-role-${tIndex}`}
-                                    value={trainer.role}
-                                    onChange={(e) =>
-                                      updateModule(index, (current) => {
-                                        const trainers = [...current.trainers]
-                                        trainers[tIndex] = {
-                                          ...trainers[tIndex],
-                                          role: e.target.value,
-                                        }
-                                        return { ...current, trainers }
-                                      })
-                                    }
-                                    placeholder="Es. Formatore interno"
-                                  />
-                                </div>
-                                <div className="space-y-1">
-                                  <Label
-                                    htmlFor={`module-${index}-trainer-company-${tIndex}`}
-                                    className="text-xs"
-                                  >
-                                    Azienda
-                                  </Label>
-                                  <Input
-                                    id={`module-${index}-trainer-company-${tIndex}`}
-                                    value={trainer.company}
-                                    onChange={(e) =>
-                                      updateModule(index, (current) => {
-                                        const trainers = [...current.trainers]
-                                        trainers[tIndex] = {
-                                          ...trainers[tIndex],
-                                          company: e.target.value,
-                                        }
-                                        return { ...current, trainers }
-                                      })
-                                    }
-                                    placeholder="Azienda del trainer"
-                                  />
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </section>
+          <CourseModulesSection
+            course={form}
+            modules={form.modules}
+            documents={documents}
+            isLoadingDocuments={isLoadingDocuments}
+            documentsError={documentsError}
+            onModulesChange={(updater) =>
+              setForm((prev) => ({
+                ...prev,
+                modules: updater(prev.modules),
+              }))
+            }
+          />
         </form>
       </div>
     </div>
