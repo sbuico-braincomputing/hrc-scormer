@@ -117,6 +117,48 @@ function parseCsvPaths(value: string | undefined): string[] {
     .filter(Boolean)
 }
 
+type FtpTargetConfig = {
+  name?: string
+  host: string
+  port?: number
+  user: string
+  password: string
+  secure?: boolean
+  basePath?: string
+  scormPaths?: string[]
+  imagePaths?: string[]
+}
+
+function parseFtpTargetsFromEnv(): FtpTargetConfig[] {
+  const rawJson = process.env.FTP_TARGETS_JSON?.trim()
+  if (!rawJson) return []
+
+  try {
+    const parsed = JSON.parse(rawJson) as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter((item): item is FtpTargetConfig => {
+      if (!item || typeof item !== "object") return false
+      const candidate = item as Record<string, unknown>
+      return (
+        typeof candidate.host === "string" &&
+        typeof candidate.user === "string" &&
+        typeof candidate.password === "string"
+      )
+    })
+  } catch {
+    return []
+  }
+}
+
+function composeRemotePath(basePath: string | undefined, itemPath: string) {
+  const normalizedBase = (basePath ?? "").trim().replace(/\/+$/, "")
+  const normalizedPath = itemPath.trim().replace(/^\/+/, "")
+  if (!normalizedBase) {
+    return `/${normalizedPath}`
+  }
+  return `${normalizedBase}/${normalizedPath}`
+}
+
 function toSqlLiteral(value: string | number | null | undefined) {
   if (value === null || value === undefined) return "NULL"
   if (typeof value === "number") return String(value)
@@ -251,8 +293,23 @@ export async function buildPublishPreview(
   const imageFilename = `${resolvedCode.resolvedCourseCode}${imageExt}`
   const dbImagePath = `/img/lmshrc/${imageFilename}`
 
-  const scormPaths = parseCsvPaths(process.env.FTP_SCORM_PATHS)
-  const imagePaths = parseCsvPaths(process.env.FTP_IMAGE_PATHS)
+  const ftpTargets = parseFtpTargetsFromEnv()
+  const scormPaths =
+    ftpTargets.length > 0
+      ? ftpTargets.flatMap((target) =>
+          (target.scormPaths ?? []).map((scormPath) =>
+            composeRemotePath(target.basePath, scormPath),
+          ),
+        )
+      : parseCsvPaths(process.env.FTP_SCORM_PATHS)
+  const imagePaths =
+    ftpTargets.length > 0
+      ? ftpTargets.flatMap((target) =>
+          (target.imagePaths ?? []).map((imagePath) =>
+            composeRemotePath(target.basePath, imagePath),
+          ),
+        )
+      : parseCsvPaths(process.env.FTP_IMAGE_PATHS)
 
   const scormTargets = scormPaths.map((path) => `${path.replace(/\/$/, "")}/${scormFilename}`)
   const imageTargets = imagePaths.map((path) => `${path.replace(/\/$/, "")}/${imageFilename}`)

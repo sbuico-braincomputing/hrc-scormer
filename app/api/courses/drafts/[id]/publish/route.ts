@@ -37,6 +37,18 @@ type PublishModule = {
   }> | null
 }
 
+type FtpTargetConfig = {
+  name: string
+  host: string
+  port: number
+  user: string
+  password: string
+  secure: boolean
+  basePath?: string
+  scormPaths: string[]
+  imagePaths: string[]
+}
+
 function isMissingDeletedAtColumn(error: unknown) {
   if (!error || typeof error !== "object") return false
   const candidate = error as { code?: unknown; sqlMessage?: unknown }
@@ -148,6 +160,109 @@ function getFtpConfig() {
   return { host, user, password, port, secure }
 }
 
+function parseFtpTargetsFromEnv(): FtpTargetConfig[] {
+  const rawJson = process.env.FTP_TARGETS_JSON?.trim()
+  if (!rawJson) {
+    const single = getFtpConfig()
+    return [
+      {
+        name: "default",
+        host: single.host,
+        port: single.port,
+        user: single.user,
+        password: single.password,
+        secure: single.secure,
+        basePath: "",
+        scormPaths: (process.env.FTP_SCORM_PATHS ?? "")
+          .split(",")
+          .map((item) => item.trim())
+          .filter(Boolean),
+        imagePaths: (process.env.FTP_IMAGE_PATHS ?? "")
+          .split(",")
+          .map((item) => item.trim())
+          .filter(Boolean),
+      },
+    ]
+  }
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(rawJson)
+  } catch {
+    throw new PublishError("FTP_TARGETS_JSON non è un JSON valido.", {
+      status: 400,
+      code: "FTP_TARGETS_JSON_INVALID",
+    })
+  }
+
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    throw new PublishError("FTP_TARGETS_JSON deve contenere almeno un target.", {
+      status: 400,
+      code: "FTP_TARGETS_JSON_EMPTY",
+    })
+  }
+
+  return parsed.map((item, index) => {
+    const target = item as Record<string, unknown>
+    const host = String(target.host ?? "").trim()
+    const user = String(target.user ?? "").trim()
+    const password = String(target.password ?? "").trim()
+    const name = String(target.name ?? `target_${index + 1}`).trim()
+    const port = Number(target.port ?? 21)
+    const secure = Boolean(target.secure)
+    const basePath = String(target.basePath ?? "").trim()
+    const scormPaths = Array.isArray(target.scormPaths)
+      ? target.scormPaths.map((path) => String(path).trim()).filter(Boolean)
+      : []
+    const imagePaths = Array.isArray(target.imagePaths)
+      ? target.imagePaths.map((path) => String(path).trim()).filter(Boolean)
+      : []
+
+    if (!host || !user || !password) {
+      throw new PublishError(`Target FTP ${name}: host/user/password obbligatori.`, {
+        status: 400,
+        code: "FTP_TARGET_INVALID",
+      })
+    }
+    if (!Number.isFinite(port) || port <= 0) {
+      throw new PublishError(`Target FTP ${name}: porta non valida.`, {
+        status: 400,
+        code: "FTP_TARGET_PORT_INVALID",
+      })
+    }
+    if (scormPaths.length === 0 || imagePaths.length === 0) {
+      throw new PublishError(
+        `Target FTP ${name}: servono scormPaths e imagePaths valorizzati.`,
+        {
+          status: 400,
+          code: "FTP_TARGET_PATHS_MISSING",
+        },
+      )
+    }
+
+    return {
+      name,
+      host,
+      user,
+      password,
+      port,
+      secure,
+      basePath,
+      scormPaths,
+      imagePaths,
+    }
+  })
+}
+
+function composeRemotePath(basePath: string | undefined, itemPath: string) {
+  const normalizedBase = (basePath ?? "").trim().replace(/\/+$/, "")
+  const normalizedPath = itemPath.trim().replace(/^\/+/, "")
+  if (!normalizedBase) {
+    return `/${normalizedPath}`
+  }
+  return `${normalizedBase}/${normalizedPath}`
+}
+
 function normalizeDocumentId(value: unknown): number | null {
   if (value === null || value === undefined) return null
   if (typeof value === "number" && Number.isFinite(value)) return value
@@ -211,6 +326,7 @@ async function resolveVideoDocumentIdForModule(
 }
 
 async function uploadFileToFtpTargets(params: {
+  target: FtpTargetConfig
   localFilePath: string
   remoteTargets: string[]
 }) {
@@ -220,7 +336,7 @@ async function uploadFileToFtpTargets(params: {
       code: "FTP_TARGETS_MISSING",
     })
   }
-  const config = getFtpConfig()
+  const config = params.target
 
   const client = await createFtpClient()
   client.ftp.verbose = false
@@ -247,38 +363,6 @@ async function uploadFileToFtpTargets(params: {
   }
 
   return uploadedTargets
-}
-
-async function removeUploadedTargetsFromFtp(targets: string[]) {
-  if (targets.length === 0) return
-
-  let config: ReturnType<typeof getFtpConfig>
-  try {
-    config = getFtpConfig()
-  } catch {
-    return
-  }
-
-  const client = await createFtpClient()
-  client.ftp.verbose = false
-  try {
-    await client.access({
-      host: config.host,
-      user: config.user,
-      password: config.password,
-      port: config.port,
-      secure: config.secure,
-    })
-    for (const target of targets) {
-      try {
-        await client.remove(target)
-      } catch {
-        // best-effort compensation
-      }
-    }
-  } finally {
-    client.close()
-  }
 }
 
 export async function POST(
@@ -334,33 +418,35 @@ export async function POST(
       )
     }
 
-    const scormTargets = preview.ftpPlan.scormTargets
-    const imageTargets = preview.ftpPlan.imageTargets
-    if (scormTargets.length === 0 || imageTargets.length === 0) {
-      throw new PublishError(
-        "Configurazione FTP incompleta: verifica FTP_SCORM_PATHS e FTP_IMAGE_PATHS.",
-        {
-          status: 400,
-          code: "FTP_PATHS_MISSING",
-        },
-      )
-    }
-
-    const uploadedTargets: string[] = []
+    const ftpTargets = parseFtpTargetsFromEnv()
+    const uploadedTargets: Array<{ target: FtpTargetConfig; path: string }> = []
 
     try {
       // 1) FTP upload: se fallisce, stop senza query DB esterno.
-      const uploadedScorm = await uploadFileToFtpTargets({
-        localFilePath: scormLocalPath,
-        remoteTargets: scormTargets,
-      })
-      uploadedTargets.push(...uploadedScorm)
+      for (const target of ftpTargets) {
+        const scormRemoteTargets = target.scormPaths.map(
+          (remotePath) =>
+            `${composeRemotePath(target.basePath, remotePath).replace(/\/$/, "")}/${preview.scormFilename}`,
+        )
+        const imageRemoteTargets = target.imagePaths.map(
+          (remotePath) =>
+            `${composeRemotePath(target.basePath, remotePath).replace(/\/$/, "")}/${preview.imageFilename}`,
+        )
 
-      const uploadedImage = await uploadFileToFtpTargets({
-        localFilePath: imageLocalPath,
-        remoteTargets: imageTargets,
-      })
-      uploadedTargets.push(...uploadedImage)
+        const uploadedScorm = await uploadFileToFtpTargets({
+          target,
+          localFilePath: scormLocalPath,
+          remoteTargets: scormRemoteTargets,
+        })
+        uploadedTargets.push(...uploadedScorm.map((path) => ({ target, path })))
+
+        const uploadedImage = await uploadFileToFtpTargets({
+          target,
+          localFilePath: imageLocalPath,
+          remoteTargets: imageRemoteTargets,
+        })
+        uploadedTargets.push(...uploadedImage.map((path) => ({ target, path })))
+      }
 
       // 2) DB esterno transaction.
       const insertResult = await socialDb.transaction().execute(async (trx) => {
@@ -492,7 +578,31 @@ export async function POST(
     } catch (publishError) {
       let compensationFailed = false
       try {
-        await removeUploadedTargetsFromFtp(uploadedTargets)
+        for (const target of ftpTargets) {
+          const client = await createFtpClient()
+          client.ftp.verbose = false
+          try {
+            await client.access({
+              host: target.host,
+              user: target.user,
+              password: target.password,
+              port: target.port,
+              secure: target.secure,
+            })
+            const targetUploads = uploadedTargets.filter(
+              (entry) => entry.target.name === target.name,
+            )
+            for (const entry of targetUploads) {
+              try {
+                await client.remove(entry.path)
+              } catch {
+                compensationFailed = true
+              }
+            }
+          } finally {
+            client.close()
+          }
+        }
       } catch {
         compensationFailed = true
       }
