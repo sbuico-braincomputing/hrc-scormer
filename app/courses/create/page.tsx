@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import Image from "next/image"
 import { useRouter } from "next/navigation"
 
@@ -67,6 +67,18 @@ export default function CourseCreatePage() {
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const vimeoVideoUrlsForDuration = useMemo(
+    () =>
+      form.modules
+        .map((module) => module.videoUrl.trim())
+        .filter((url) => url.length > 0 && url.includes("vimeo.com")),
+    [form.modules],
+  )
+  const vimeoVideoUrlsSignature = useMemo(
+    () => vimeoVideoUrlsForDuration.join("||"),
+    [vimeoVideoUrlsForDuration],
+  )
+
   useEffect(() => {
     async function loadDocuments() {
       try {
@@ -99,13 +111,13 @@ export default function CourseCreatePage() {
     let aborted = false
 
     async function syncDurationFromVideos() {
-      const videoUrls = form.modules
-        .map((module) => module.videoUrl.trim())
-        .filter((url) => url.length > 0 && url.includes("vimeo.com"))
+      const videoUrls = vimeoVideoUrlsForDuration
 
       if (videoUrls.length === 0) {
-        if (!aborted && form.duration !== 0) {
-          setForm((prev) => ({ ...prev, duration: 0 }))
+        if (!aborted) {
+          setForm((prev) =>
+            prev.duration === 0 ? prev : { ...prev, duration: 0 },
+          )
         }
         return
       }
@@ -134,8 +146,12 @@ export default function CourseCreatePage() {
       })
       const nextDuration = Math.ceil(totalSeconds / 60)
 
-      if (!aborted && nextDuration !== form.duration) {
-        setForm((prev) => ({ ...prev, duration: nextDuration }))
+      if (!aborted) {
+        setForm((prev) =>
+          prev.duration === nextDuration
+            ? prev
+            : { ...prev, duration: nextDuration },
+        )
       }
     }
 
@@ -144,7 +160,7 @@ export default function CourseCreatePage() {
     return () => {
       aborted = true
     }
-  }, [form.modules, form.duration])
+  }, [vimeoVideoUrlsSignature])
 
   useEffect(() => {
     async function loadCategories() {
