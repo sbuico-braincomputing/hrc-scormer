@@ -1,7 +1,8 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import Image from "next/image"
+import { Trash2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -22,6 +23,9 @@ export type Module = {
   videoDocumentId?: string
   videoSearch: string
   selectedDocumentId?: string
+  /** Snapshot UI quando il documento non è nell’elenco globale né nei risultati di ricerca */
+  selectedDocumentTitle?: string
+  selectedDocumentFilename?: string
   documentSearch: string
   trainers: Trainer[]
 }
@@ -119,15 +123,45 @@ function CourseModuleCard({
     null,
   )
 
-  const selectedDocumentFromDocuments = documents.find(
-    (doc) => doc.id === module.selectedDocumentId,
-  )
+  const selectedDocument = useMemo((): DocumentRef | undefined => {
+    const id = module.selectedDocumentId
+    if (!id) return undefined
 
-  const selectedDocumentFromResults = documentResults.find(
-    (doc) => doc.id === module.selectedDocumentId,
-  )
+    const fromDocuments = documents.find((doc) => doc.id === id)
+    if (fromDocuments) return fromDocuments
 
-  const selectedDocument = selectedDocumentFromDocuments || selectedDocumentFromResults
+    const fromResults = documentResults.find((doc) => doc.id === id)
+    if (fromResults) return fromResults
+
+    const title = module.selectedDocumentTitle?.trim()
+    const filename = module.selectedDocumentFilename?.trim()
+    if (title || filename) {
+      return {
+        id,
+        title: title || null,
+        name: null,
+        filename: filename || null,
+      }
+    }
+
+    return { id, title: null, name: null, filename: null }
+  }, [
+    documents,
+    documentResults,
+    module.selectedDocumentId,
+    module.selectedDocumentTitle,
+    module.selectedDocumentFilename,
+  ])
+
+  /** In ricerca, mantieni in lista il documento già scelto anche se la nuova query non lo include */
+  const documentResultsWithSelection = useMemo(() => {
+    const id = module.selectedDocumentId
+    if (!id || !selectedDocument) return documentResults
+    if (documentResults.some((doc) => doc.id === id)) return documentResults
+    return [selectedDocument, ...documentResults]
+  }, [documentResults, module.selectedDocumentId, selectedDocument])
+
+  const visibleDocumentResults = documentResultsWithSelection.slice(0, 8)
 
   const selectedVideoFromDocuments = documents.find(
     (doc) => doc.id === module.videoDocumentId,
@@ -140,7 +174,6 @@ function CourseModuleCard({
   const selectedVideoDocument = selectedVideoFromDocuments || selectedVideoFromResults
 
   const visibleVideoDocuments = videoResults.slice(0, 8)
-  const visibleDocumentResults = documentResults.slice(0, 8)
 
   useEffect(() => {
     let aborted = false
@@ -200,7 +233,6 @@ function CourseModuleCard({
   useEffect(() => {
     const term = module.documentSearch.trim()
     if (!term) {
-      setDocumentResults([])
       setDocumentSearchError(null)
       setIsSearchingDocuments(false)
       return
@@ -416,24 +448,6 @@ function CourseModuleCard({
                   }))
                 }
               />
-              <div className="min-w-[150px] text-xs text-zinc-500">
-                {selectedDocument ? (
-                  <span>
-                    Selezionato:{" "}
-                    <span className="font-medium">
-                      {getDocumentTitle(selectedDocument) ||
-                        selectedDocument.id}
-                    </span>{" "}
-                    <span className="text-[10px] text-zinc-400">
-                      ({selectedDocument.id})
-                    </span>
-                  </span>
-                ) : (
-                  <span className="text-zinc-400">
-                    Nessun documento selezionato
-                  </span>
-                )}
-              </div>
             </div>
 
             {module.documentSearch.trim().length > 0 && (
@@ -480,6 +494,11 @@ function CourseModuleCard({
                           onChange((current) => ({
                             ...current,
                             selectedDocumentId: doc.id,
+                            documentSearch: "",
+                            selectedDocumentTitle:
+                              getDocumentTitle(doc) || undefined,
+                            selectedDocumentFilename:
+                              getDocumentFilename(doc) || undefined,
                           }))
                         }
                       >
@@ -500,6 +519,26 @@ function CourseModuleCard({
               </div>
             )}
           </div>
+          {selectedDocument && (
+            <div className="rounded-md border border-zinc-200 bg-zinc-50 p-2 text-xs text-zinc-500">
+              Documento selezionato:
+              <div className="mt-0.5 flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="truncate font-medium text-zinc-700">
+                    {getDocumentTitle(selectedDocument) || selectedDocument.id}
+                  </div>
+                  {getDocumentFilename(selectedDocument) && (
+                    <div className="truncate text-[10px] text-zinc-400">
+                      {getDocumentFilename(selectedDocument)}
+                    </div>
+                  )}
+                </div>
+                <span className="shrink-0 rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-mono text-zinc-500">
+                  {selectedDocument.id}
+                </span>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="space-y-3 rounded-md border border-zinc-100 bg-zinc-50 p-3">
@@ -538,76 +577,108 @@ function CourseModuleCard({
               {module.trainers.map((trainer, tIndex) => (
                 <div
                   key={tIndex}
-                  className="grid gap-2 rounded-md border border-zinc-200 bg-white p-2.5 sm:grid-cols-3"
+                  className="relative space-y-2 rounded-md border border-zinc-200 bg-white p-2.5"
                 >
-                  <div className="space-y-1">
-                    <Label
-                      htmlFor={`module-${index}-trainer-name-${tIndex}`}
-                      className="text-xs"
-                    >
-                      Nome
-                    </Label>
-                    <Input
-                      id={`module-${index}-trainer-name-${tIndex}`}
-                      value={trainer.name}
-                      onChange={(e) =>
-                        onChange((current) => {
-                          const trainers = [...current.trainers]
-                          trainers[tIndex] = {
-                            ...trainers[tIndex],
-                            name: e.target.value,
-                          }
-                          return { ...current, trainers }
-                        })
-                      }
-                      placeholder="Nome e cognome"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label
-                      htmlFor={`module-${index}-trainer-role-${tIndex}`}
-                      className="text-xs"
-                    >
-                      Ruolo
-                    </Label>
-                    <Input
-                      id={`module-${index}-trainer-role-${tIndex}`}
-                      value={trainer.role}
-                      onChange={(e) =>
-                        onChange((current) => {
-                          const trainers = [...current.trainers]
-                          trainers[tIndex] = {
-                            ...trainers[tIndex],
-                            role: e.target.value,
-                          }
-                          return { ...current, trainers }
-                        })
-                      }
-                      placeholder="Es. Formatore interno"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label
-                      htmlFor={`module-${index}-trainer-company-${tIndex}`}
-                      className="text-xs"
-                    >
-                      Azienda
-                    </Label>
-                    <Input
-                      id={`module-${index}-trainer-company-${tIndex}`}
-                      value={trainer.company}
-                      onChange={(e) =>
-                        onChange((current) => {
-                          const trainers = [...current.trainers]
-                          trainers[tIndex] = {
-                            ...trainers[tIndex],
-                            company: e.target.value,
-                          }
-                          return { ...current, trainers }
-                        })
-                      }
-                      placeholder="Azienda del trainer"
-                    />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="absolute right-2 top-2 h-7 w-7 p-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    onClick={() =>
+                      onChange((current) => ({
+                        ...current,
+                        trainers: current.trainers.filter(
+                          (_, i) => i !== tIndex,
+                        ),
+                      }))
+                    }
+                    aria-label={`Rimuovi trainer ${tIndex + 1}`}
+                    title="Rimuovi trainer"
+                  >
+                    <Trash2 className="h-4 w-4" aria-hidden="true" />
+                  </Button>
+                  <div className="flex flex-col gap-2 pt-6 sm:grid-cols-3">
+                    <div className="space-y-1">
+                      <Label
+                        htmlFor={`module-${index}-trainer-name-${tIndex}`}
+                        className="text-xs"
+                      >
+                        Nome
+                      </Label>
+                      <Input
+                        id={`module-${index}-trainer-name-${tIndex}`}
+                        value={trainer.name}
+                        onChange={(e) =>
+                          onChange((current) => {
+                            const trainers = [...current.trainers]
+                            trainers[tIndex] = {
+                              ...trainers[tIndex],
+                              name: e.target.value,
+                            }
+                            return { ...current, trainers }
+                          })
+                        }
+                        placeholder="Nome e cognome"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label
+                        htmlFor={`module-${index}-trainer-role-${tIndex}`}
+                        className="text-xs"
+                      >
+                        Ruolo
+                      </Label>
+                      <Textarea
+                        id={`module-${index}-trainer-role-${tIndex}`}
+                        value={trainer.role}
+                        ref={(el) => {
+                          if (!el) return
+                          el.style.height = "auto"
+                          el.style.height = `${el.scrollHeight}px`
+                        }}
+                        onChange={(e) =>
+                          onChange((current) => {
+                            const trainers = [...current.trainers]
+                            trainers[tIndex] = {
+                              ...trainers[tIndex],
+                              role: e.target.value,
+                            }
+                            return { ...current, trainers }
+                          })
+                        }
+                        onInput={(e) => {
+                          const el = e.currentTarget
+                          el.style.height = "auto"
+                          el.style.height = `${el.scrollHeight}px`
+                        }}
+                        rows={1}
+                        className="min-h-9 resize-none overflow-hidden"
+                        placeholder="Es. Formatore interno"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label
+                        htmlFor={`module-${index}-trainer-company-${tIndex}`}
+                        className="text-xs"
+                      >
+                        Azienda
+                      </Label>
+                      <Input
+                        id={`module-${index}-trainer-company-${tIndex}`}
+                        value={trainer.company}
+                        onChange={(e) =>
+                          onChange((current) => {
+                            const trainers = [...current.trainers]
+                            trainers[tIndex] = {
+                              ...trainers[tIndex],
+                              company: e.target.value,
+                            }
+                            return { ...current, trainers }
+                          })
+                        }
+                        placeholder="Azienda del trainer"
+                      />
+                    </div>
                   </div>
                 </div>
               ))}

@@ -399,17 +399,28 @@ export default function CoursesListPage() {
                         Modifica
                       </Button>
                       {course.isDraft && (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="xs"
-                          disabled={deletingId === course.id}
-                          onClick={() => setDraftToDelete(course)}
-                        >
-                          {deletingId === course.id
-                            ? "Eliminazione…"
-                            : "Elimina bozza"}
-                        </Button>
+                        <>
+                          <Button
+                            type="button"
+                            size="xs"
+                            onClick={() =>
+                              router.push(`/courses/${course.id}/review?draft=1`)
+                            }
+                          >
+                            Pubblica
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="xs"
+                            disabled={deletingId === course.id}
+                            onClick={() => setDraftToDelete(course)}
+                          >
+                            {deletingId === course.id
+                              ? "Eliminazione…"
+                              : "Elimina bozza"}
+                          </Button>
+                        </>
                       )}
                     </div>
                   </div>

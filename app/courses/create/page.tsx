@@ -149,6 +149,8 @@ export default function CourseCreatePage() {
           video_url: module.videoUrl,
           thumbnail_url: module.thumbnailUrl ?? null,
           document_id: module.selectedDocumentId ?? null,
+          document_title: module.selectedDocumentTitle ?? null,
+          document_filename: module.selectedDocumentFilename ?? null,
           trainers: module.trainers,
         })),
       }

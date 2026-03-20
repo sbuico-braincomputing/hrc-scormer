@@ -202,6 +202,14 @@ export default function CourseEditPage() {
                 videoDocumentId: undefined,
                 videoSearch: "",
                 selectedDocumentId: existing.document_id ?? undefined,
+                selectedDocumentTitle:
+                  typeof existing.document_title === "string"
+                    ? existing.document_title
+                    : undefined,
+                selectedDocumentFilename:
+                  typeof existing.document_filename === "string"
+                    ? existing.document_filename
+                    : undefined,
                 documentSearch: "",
                 trainers: Array.isArray(existing.trainers)
                   ? existing.trainers
@@ -407,6 +415,8 @@ export default function CourseEditPage() {
           video_url: module.videoUrl,
           thumbnail_url: module.thumbnailUrl ?? null,
           document_id: module.selectedDocumentId ?? null,
+          document_title: module.selectedDocumentTitle ?? null,
+          document_filename: module.selectedDocumentFilename ?? null,
           trainers: module.trainers,
         })),
       }
