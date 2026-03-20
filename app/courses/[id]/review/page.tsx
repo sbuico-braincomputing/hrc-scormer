@@ -1,10 +1,17 @@
 "use client"
 
 import Link from "next/link"
+import Image from "next/image"
 import { useEffect, useMemo, useState } from "react"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
 
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
+import CourseModulesSection, {
+  Module as FormModule,
+} from "@/app/courses/_components/course-modules-section"
 
 type Trainer = {
   name?: string | null
@@ -12,11 +19,14 @@ type Trainer = {
   company?: string | null
 }
 
-type Module = {
+type DraftModule = {
   title?: string | null
   description?: string | null
   video_url?: string | null
+  thumbnail_url?: string | null
   document_id?: string | null
+  document_title?: string | null
+  document_filename?: string | null
   trainers?: Trainer[] | null
 }
 
@@ -32,7 +42,7 @@ type DraftCourse = {
   course_scorm_file?: string | null
   date_from?: string | null
   date_to?: string | null
-  modules?: Module[] | null
+  modules?: DraftModule[] | null
 }
 
 function isMissing(value: unknown) {
@@ -40,6 +50,13 @@ function isMissing(value: unknown) {
   if (typeof value === "string") return value.trim().length === 0
   if (typeof value === "number" || typeof value === "boolean") return false
   return String(value).trim().length === 0
+}
+
+function getBasename(path: string | null | undefined): string | undefined {
+  if (!path) return undefined
+  const trimmed = path.split("?")[0].split("#")[0]
+  const parts = trimmed.split("/")
+  return parts[parts.length - 1] || undefined
 }
 
 export default function CourseReviewPage() {
@@ -139,6 +156,28 @@ export default function CourseReviewPage() {
     return missing
   }, [course])
 
+  const reviewModules = useMemo<FormModule[]>(() => {
+    if (!course?.modules || !Array.isArray(course.modules)) return []
+
+    return course.modules.map((module) => ({
+      title: module.title ?? "",
+      description: module.description ?? "",
+      videoUrl: module.video_url ?? "",
+      thumbnailUrl: module.thumbnail_url ?? undefined,
+      videoDocumentId: undefined,
+      videoSearch: "",
+      selectedDocumentId: module.document_id ?? undefined,
+      selectedDocumentTitle: module.document_title ?? undefined,
+      selectedDocumentFilename: module.document_filename ?? undefined,
+      documentSearch: "",
+      trainers: (module.trainers ?? []).map((trainer) => ({
+        name: trainer.name ?? "",
+        role: trainer.role ?? "",
+        company: trainer.company ?? "",
+      })),
+    }))
+  }, [course])
+
   async function handlePublish() {
     if (!courseId) return
 
@@ -175,21 +214,24 @@ export default function CourseReviewPage() {
 
   return (
     <div className="min-h-screen bg-zinc-50 py-10 text-zinc-900">
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 lg:px-6">
-        <header className="flex flex-col gap-3 border-b border-zinc-200 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-4 lg:px-6">
+        <header className="flex flex-col justify-between gap-4 border-b border-zinc-200 pb-4 sm:flex-row sm:items-end">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">
               Review bozza corso
             </h1>
             <p className="mt-1 text-sm text-zinc-600">
-              Controlla i dettagli in sola lettura prima della pubblicazione.
+              Verifica i dettagli del corso in sola lettura prima della pubblicazione.
             </p>
           </div>
-          {courseId && (
-            <Button asChild variant="outline">
-              <Link href={`/courses/${courseId}/edit?draft=1`}>Vai a modifica</Link>
-            </Button>
-          )}
+          <Button
+            type="button"
+            onClick={handlePublish}
+            className="self-start"
+            disabled={isPublishing || isLoading || localMissingFields.length > 0}
+          >
+            {isPublishing ? "Pubblicazione in corso..." : "Conferma pubblicazione"}
+          </Button>
         </header>
 
         {isLoading && (
@@ -236,87 +278,136 @@ export default function CourseReviewPage() {
                 </ul>
               </div>
             )}
+            <div className="grid gap-8 lg:grid-cols-[minmax(0,2fr)_minmax(0,2fr)]">
+              <section className="space-y-6 rounded-lg bg-white p-5 shadow-sm">
+                <h2 className="text-lg font-semibold tracking-tight">Dettagli corso</h2>
 
-            <section className="space-y-4 rounded-lg bg-white p-5 shadow-sm">
-              <h2 className="text-lg font-semibold tracking-tight">Dettagli corso</h2>
-              <dl className="grid gap-3 sm:grid-cols-2">
-                <div>
-                  <dt className="text-xs font-medium uppercase text-zinc-500">Titolo</dt>
-                  <dd className="text-sm text-zinc-800">
-                    {course.course_title ?? course.course_name ?? "-"}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-xs font-medium uppercase text-zinc-500">Categoria</dt>
-                  <dd className="text-sm text-zinc-800">{course.category_id ?? "-"}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs font-medium uppercase text-zinc-500">Azienda</dt>
-                  <dd className="text-sm text-zinc-800">{course.company ?? "-"}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs font-medium uppercase text-zinc-500">SCORM</dt>
-                  <dd className="text-sm text-zinc-800">{course.course_scorm_file ?? "-"}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs font-medium uppercase text-zinc-500">Data inizio</dt>
-                  <dd className="text-sm text-zinc-800">{course.date_from ?? "-"}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs font-medium uppercase text-zinc-500">Data fine</dt>
-                  <dd className="text-sm text-zinc-800">{course.date_to ?? "-"}</dd>
-                </div>
-                <div className="sm:col-span-2">
-                  <dt className="text-xs font-medium uppercase text-zinc-500">
-                    Descrizione
-                  </dt>
-                  <dd className="text-sm text-zinc-800">
-                    {course.course_description ?? course.description ?? "-"}
-                  </dd>
-                </div>
-              </dl>
-            </section>
+                <div className="space-y-4">
+                  <div className="space-y-1.5">
+                    <Label>Titolo corso</Label>
+                    <Input
+                      value={course.course_title ?? course.course_name ?? ""}
+                      readOnly
+                      className="border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
+                    />
+                  </div>
 
-            <section className="space-y-3 rounded-lg bg-white p-5 shadow-sm">
-              <h2 className="text-lg font-semibold tracking-tight">Moduli</h2>
-              {(course.modules ?? []).map((module, index) => (
-                <article
-                  key={index}
-                  className="space-y-2 rounded-md border border-zinc-200 bg-zinc-50 p-3"
-                >
-                  <h3 className="text-sm font-semibold">Modulo {index + 1}</h3>
-                  <p className="text-sm text-zinc-800">
-                    <span className="font-medium">Titolo:</span> {module.title || "-"}
-                  </p>
-                  <p className="text-sm text-zinc-800">
-                    <span className="font-medium">Descrizione:</span>{" "}
-                    {module.description || "-"}
-                  </p>
-                  <p className="text-sm text-zinc-800">
-                    <span className="font-medium">Video:</span> {module.video_url || "-"}
-                  </p>
-                  <p className="text-sm text-zinc-800">
-                    <span className="font-medium">Documento:</span>{" "}
-                    {module.document_id || "-"}
-                  </p>
-                  <div className="space-y-1">
-                    <p className="text-sm font-medium text-zinc-800">Trainer</p>
-                    {module.trainers && module.trainers.length > 0 ? (
-                      <ul className="list-disc pl-5 text-sm text-zinc-700">
-                        {module.trainers.map((trainer, trainerIndex) => (
-                          <li key={trainerIndex}>
-                            {trainer.name || "-"} - {trainer.role || "-"} (
-                            {trainer.company || "-"})
-                          </li>
-                        ))}
-                      </ul>
+                  <div className="space-y-1.5">
+                    <Label>Descrizione corso</Label>
+                    <Textarea
+                      value={course.course_description ?? course.description ?? ""}
+                      readOnly
+                      rows={4}
+                      ref={(el) => {
+                        if (!el) return
+                        el.style.height = "auto"
+                        el.style.height = `${el.scrollHeight}px`
+                      }}
+                      className="border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label>Immagine corso</Label>
+                   
+                      <div className="flex flex-col max-w-[180px] items-center justify-center gap-2 rounded-md border border-zinc-200 bg-zinc-50 p-2 text-center text-[11px] text-zinc-500">
+                        <div
+                          className="relative w-full max-w-[180px] overflow-hidden rounded-md bg-black/5"
+                          style={{ aspectRatio: "1 / 1" }}
+                        >
+                          {course.image_url_landscape ? (
+                            <Image
+                              src={course.image_url_landscape}
+                              alt="Immagine corso"
+                              fill
+                              className="object-cover"
+                            />
+                          ) : (
+                            <div className="flex h-full w-full items-center justify-center text-[11px] text-zinc-400">
+                              Nessuna immagine
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <Label>Data inizio</Label>
+                      <Input
+                        value={course.date_from ?? ""}
+                        readOnly
+                        className="border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Data fine</Label>
+                      <Input
+                        value={course.date_to ?? ""}
+                        readOnly
+                        className="border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <Label>Categoria</Label>
+                      <Input
+                        value={String(course.category_id ?? "")}
+                        readOnly
+                        className="border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Azienda</Label>
+                      <Input
+                        value={course.company ?? ""}
+                        readOnly
+                        className="border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label>File SCORM (.zip)</Label>
+                    {course.course_scorm_file ? (
+                      <div className="flex items-start gap-3 rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-800">
+                        <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-zinc-200 text-[11px] font-semibold text-zinc-800">
+                          ZIP
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="wrap-break-word font-medium">
+                            {getBasename(course.course_scorm_file) ?? "File SCORM"}
+                          </div>
+                          <div className="mt-0.5 break-all text-[10px] text-zinc-600">
+                            {course.course_scorm_file}
+                          </div>
+                        </div>
+                      </div>
                     ) : (
-                      <p className="text-sm text-zinc-600">Nessun trainer</p>
+                      <div className="rounded-md border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-500">
+                        Nessun file SCORM associato.
+                      </div>
                     )}
                   </div>
-                </article>
-              ))}
-            </section>
+                </div>
+              </section>
+
+              <section className="space-y-4">
+                <CourseModulesSection
+                  course={{ company: course.company ?? "" }}
+                  modules={reviewModules}
+                  documents={[]}
+                  isLoadingDocuments={false}
+                  documentsError={null}
+                  readOnly
+                  onModulesChange={(_updater) => {
+                    return
+                  }}
+                />
+              </section>
+            </div>
 
             <div className="flex items-center justify-end gap-2">
               <Button asChild variant="outline">

@@ -3,6 +3,7 @@
 import Link from "next/link"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
+import { Eye, Pencil, Rocket, Trash2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -318,8 +319,11 @@ export default function CoursesListPage() {
                       )}
                     </div>
                     <div className="space-y-1">
-                      <h2 className="text-sm font-semibold tracking-tight flex items-center gap-2">
-                        <span>{title}</span>
+                      <h2
+                        className="flex items-center gap-2 text-sm font-semibold tracking-tight"
+                        title={title}
+                      >
+                        <span className="block max-w-[540px] truncate">{title}</span>
 
                         {course.isDraft ? (
                           <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800">
@@ -347,79 +351,76 @@ export default function CoursesListPage() {
                         Creato il {createdAt}
                       </span>
                     )}
-                    <div className="flex gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="xs"
-                        onClick={() => {
-                          const titleParam =
-                            course.course_title ??
-                            course.course_name ??
-                            ""
-                          const descriptionParam =
-                            course.course_description ??
-                            course.description ??
-                            ""
-
-                          const params = new URLSearchParams()
-                          if (!course.isDraft) {
-                            if (titleParam) {
-                              params.set("title", titleParam)
-                            }
-                            if (descriptionParam) {
-                              params.set("description", descriptionParam)
-                            }
-                            if (course.category_name) {
-                              params.set("category", course.category_name)
-                            }
-
-                            if (imageUrl) {
-                              params.set("imageUrl", imageUrl)
-                            }
-                            if (course.course_scorm_file) {
-                              params.set("scormUrl", course.course_scorm_file)
-                              const scormName =
-                                course.course_scorm_file.split("/").pop() ??
-                                course.course_scorm_file
-                              params.set("scormName", scormName)
-                            }
-                          } else {
-                            params.set("draft", "1")
-                          }
-
-                          const query = params.toString()
-                          router.push(
-                            `/courses/${course.id}/edit${
-                              query ? `?${query}` : ""
-                            }`,
-                          )
-                        }}
-                      >
-                        Modifica
-                      </Button>
-                      {course.isDraft && (
-                        <>
-                          <Button
-                            type="button"
-                            size="xs"
-                            onClick={() =>
-                              router.push(`/courses/${course.id}/review?draft=1`)
-                            }
-                          >
-                            Pubblica
-                          </Button>
+                    <div className="flex flex-row items-center gap-2">
+                      {course.isDraft ? (
+                        <div className="relative group/action">
                           <Button
                             type="button"
                             variant="outline"
-                            size="xs"
-                            disabled={deletingId === course.id}
-                            onClick={() => setDraftToDelete(course)}
+                            size="icon-sm"
+                            aria-label="Modifica"
+                            onClick={() => {
+                              const params = new URLSearchParams()
+                              params.set("draft", "1")
+
+                              const query = params.toString()
+                              router.push(
+                                `/courses/${course.id}/edit${
+                                  query ? `?${query}` : ""
+                                }`,
+                              )
+                            }}
                           >
-                            {deletingId === course.id
-                              ? "Eliminazione…"
-                              : "Elimina bozza"}
+                            <Pencil />
                           </Button>
+                          <span className="pointer-events-none absolute -top-8 left-1/2 z-10 -translate-x-1/2 rounded bg-zinc-900 px-2 py-1 text-[10px] font-medium whitespace-nowrap text-white opacity-0 shadow transition-opacity group-hover/action:opacity-100">
+                            Modifica bozza
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="relative group/action">
+                          <Button asChild type="button" variant="outline" size="icon-sm">
+                            <Link href="#" aria-label="Anteprima corso">
+                              <Eye />
+                            </Link>
+                          </Button>
+                          <span className="pointer-events-none absolute -top-8 left-1/2 z-10 -translate-x-1/2 rounded bg-zinc-900 px-2 py-1 text-[10px] font-medium whitespace-nowrap text-white opacity-0 shadow transition-opacity group-hover/action:opacity-100">
+                            Visualizza corso
+                          </span>
+                        </div>
+                      )}
+                      {course.isDraft && (
+                        <>
+                          <div className="relative group/action">
+                            <Button
+                              type="button"
+                              size="icon-sm"
+                              aria-label="Pubblica"
+                              onClick={() =>
+                                router.push(`/courses/${course.id}/review?draft=1`)
+                              }
+                            >
+                              <Rocket />
+                            </Button>
+                            <span className="pointer-events-none absolute -top-8 left-1/2 z-10 -translate-x-1/2 rounded bg-zinc-900 px-2 py-1 text-[10px] font-medium whitespace-nowrap text-white opacity-0 shadow transition-opacity group-hover/action:opacity-100">
+                              Pubblica bozza
+                            </span>
+                          </div>
+                          <div className="relative group/action">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="icon-sm"
+                              aria-label="Elimina bozza"
+                              disabled={deletingId === course.id}
+                              onClick={() => setDraftToDelete(course)}
+                            >
+                              <Trash2 />
+                            </Button>
+                            <span className="pointer-events-none absolute -top-8 left-1/2 z-10 -translate-x-1/2 rounded bg-zinc-900 px-2 py-1 text-[10px] font-medium whitespace-nowrap text-white opacity-0 shadow transition-opacity group-hover/action:opacity-100">
+                              Elimina bozza
+                            </span>
+                          </div>
                         </>
                       )}
                     </div>

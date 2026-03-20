@@ -100,6 +100,7 @@ type CourseModuleCardProps = {
   documents: DocumentRef[]
   isLoadingDocuments: boolean
   documentsError: string | null
+  readOnly?: boolean
   onChange: (updater: (current: Module) => Module) => void
   onUpdateVideoFromDocument: (doc: DocumentRef) => void | Promise<void>
 }
@@ -111,6 +112,7 @@ function CourseModuleCard({
   documents,
   isLoadingDocuments,
   documentsError,
+  readOnly = false,
   onChange,
   onUpdateVideoFromDocument,
 }: CourseModuleCardProps) {
@@ -176,6 +178,7 @@ function CourseModuleCard({
   const visibleVideoDocuments = videoResults.slice(0, 8)
 
   useEffect(() => {
+    if (readOnly) return
     let aborted = false
 
     const term = module.videoSearch.trim()
@@ -228,9 +231,10 @@ function CourseModuleCard({
       aborted = true
       window.clearTimeout(timeoutId)
     }
-  }, [module.videoSearch])
+  }, [module.videoSearch, readOnly])
 
   useEffect(() => {
+    if (readOnly) return
     const term = module.documentSearch.trim()
     if (!term) {
       setDocumentSearchError(null)
@@ -282,7 +286,7 @@ function CourseModuleCard({
       aborted = true
       window.clearTimeout(timeoutId)
     }
-  }, [module.documentSearch])
+  }, [module.documentSearch, readOnly])
 
   return (
     <div className="space-y-4 rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
@@ -298,12 +302,17 @@ function CourseModuleCard({
           <Input
             id={`module-title-${index}`}
             value={module.title}
-            onChange={(e) =>
-              onChange((current) => ({
-                ...current,
-                title: e.target.value,
-              }))
+            onChange={
+              readOnly
+                ? undefined
+                : (e) =>
+                    onChange((current) => ({
+                      ...current,
+                      title: e.target.value,
+                    }))
             }
+            readOnly={readOnly}
+            className={readOnly ? "border-0 bg-transparent px-0 shadow-none" : undefined}
             placeholder="Titolo del modulo"
           />
         </div>
@@ -313,12 +322,27 @@ function CourseModuleCard({
           <Textarea
             id={`module-description-${index}`}
             value={module.description}
-            onChange={(e) =>
-              onChange((current) => ({
-                ...current,
-                description: e.target.value,
-              }))
+            onChange={
+              readOnly
+                ? undefined
+                : (e) =>
+                    onChange((current) => ({
+                      ...current,
+                      description: e.target.value,
+                    }))
             }
+            readOnly={readOnly}
+            ref={(el) => {
+              if (!el) return
+              el.style.height = "auto"
+              el.style.height = `${el.scrollHeight}px`
+            }}
+            onInput={(e) => {
+              const el = e.currentTarget
+              el.style.height = "auto"
+              el.style.height = `${el.scrollHeight}px`
+            }}
+            className={`${readOnly ? "border-0 bg-transparent px-0 shadow-none" : ""} min-h-9 resize-none overflow-hidden`}
             placeholder="Descrizione sintetica del modulo..."
             rows={3}
           />
@@ -326,19 +350,21 @@ function CourseModuleCard({
 
         <div className="grid gap-3 sm:grid-cols-[minmax(0,2fr)_minmax(0,1.2fr)] sm:items-start">
           <div className="space-y-1.5 w-full overflow-auto">
-            <Label>Video (da tabella documents)</Label>
+            <Label>Video del corso</Label>
             <div className="space-y-2">
-              <Input
-                placeholder="Cerca per titolo, filename o ID documento video..."
-                value={module.videoSearch}
-                onChange={(e) =>
-                  onChange((current) => ({
-                    ...current,
-                    videoSearch: e.target.value,
-                  }))
-                }
-              />
-              {module.videoSearch.trim().length > 0 && (
+              {!readOnly && (
+                <Input
+                  placeholder="Cerca per titolo, filename o ID documento video..."
+                  value={module.videoSearch}
+                  onChange={(e) =>
+                    onChange((current) => ({
+                      ...current,
+                      videoSearch: e.target.value,
+                    }))
+                  }
+                />
+              )}
+              {!readOnly && module.videoSearch.trim().length > 0 && (
                 <div className="max-h-32 space-y-1 overflow-auto rounded-md border border-zinc-200 bg-zinc-50 p-1.5 text-xs">
                   {(isLoadingDocuments || isSearchingVideos) && (
                     <div className="rounded px-2 py-1 text-zinc-400">
@@ -437,20 +463,22 @@ function CourseModuleCard({
         <div className="space-y-2 w-full overflow-auto">
           <Label>Documento associato</Label>
           <div className="space-y-1.5">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-              <Input
-                placeholder="Cerca per titolo, filename o ID documento..."
-                value={module.documentSearch}
-                onChange={(e) =>
-                  onChange((current) => ({
-                    ...current,
-                    documentSearch: e.target.value,
-                  }))
-                }
-              />
-            </div>
+            {!readOnly && (
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <Input
+                  placeholder="Cerca per titolo, filename o ID documento..."
+                  value={module.documentSearch}
+                  onChange={(e) =>
+                    onChange((current) => ({
+                      ...current,
+                      documentSearch: e.target.value,
+                    }))
+                  }
+                />
+              </div>
+            )}
 
-            {module.documentSearch.trim().length > 0 && (
+            {!readOnly && module.documentSearch.trim().length > 0 && (
               <div className="max-h-32 space-y-1 overflow-auto rounded-md border border-zinc-200 bg-zinc-50 p-1.5 text-xs">
                 {isLoadingDocuments && (
                   <div className="rounded px-2 py-1 text-zinc-400">
@@ -522,13 +550,13 @@ function CourseModuleCard({
           {selectedDocument && (
             <div className="rounded-md border border-zinc-200 bg-zinc-50 p-2 text-xs text-zinc-500">
               Documento selezionato:
-              <div className="mt-0.5 flex items-center justify-between gap-2">
+              <div className="mt-0.5 flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <div className="truncate font-medium text-zinc-700">
+                  <div className="wrap-break-word font-medium text-zinc-700">
                     {getDocumentTitle(selectedDocument) || selectedDocument.id}
                   </div>
                   {getDocumentFilename(selectedDocument) && (
-                    <div className="truncate text-[10px] text-zinc-400">
+                    <div className="break-all text-[10px] text-zinc-400">
                       {getDocumentFilename(selectedDocument)}
                     </div>
                   )}
@@ -544,26 +572,28 @@ function CourseModuleCard({
         <div className="space-y-3 rounded-md border border-zinc-100 bg-zinc-50 p-3">
           <div className="flex items-center justify-between gap-2">
             <span className="text-sm font-semibold">Trainer</span>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                onChange((current) => ({
-                  ...current,
-                  trainers: [
-                    ...current.trainers,
-                    {
-                      name: "",
-                      role: "",
-                      company: course.company,
-                    },
-                  ],
-                }))
-              }}
-            >
-              Aggiungi trainer
-            </Button>
+            {!readOnly && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  onChange((current) => ({
+                    ...current,
+                    trainers: [
+                      ...current.trainers,
+                      {
+                        name: "",
+                        role: "",
+                        company: course.company,
+                      },
+                    ],
+                  }))
+                }}
+              >
+                Aggiungi trainer
+              </Button>
+            )}
           </div>
 
           {module.trainers.length === 0 ? (
@@ -579,24 +609,26 @@ function CourseModuleCard({
                   key={tIndex}
                   className="relative space-y-2 rounded-md border border-zinc-200 bg-white p-2.5"
                 >
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="absolute right-2 top-2 h-7 w-7 p-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                    onClick={() =>
-                      onChange((current) => ({
-                        ...current,
-                        trainers: current.trainers.filter(
-                          (_, i) => i !== tIndex,
-                        ),
-                      }))
-                    }
-                    aria-label={`Rimuovi trainer ${tIndex + 1}`}
-                    title="Rimuovi trainer"
-                  >
-                    <Trash2 className="h-4 w-4" aria-hidden="true" />
-                  </Button>
+                  {!readOnly && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-2 top-2 h-7 w-7 p-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                      onClick={() =>
+                        onChange((current) => ({
+                          ...current,
+                          trainers: current.trainers.filter(
+                            (_, i) => i !== tIndex,
+                          ),
+                        }))
+                      }
+                      aria-label={`Rimuovi trainer ${tIndex + 1}`}
+                      title="Rimuovi trainer"
+                    >
+                      <Trash2 className="h-4 w-4" aria-hidden="true" />
+                    </Button>
+                  )}
                   <div className="flex flex-col gap-2 pt-6 sm:grid-cols-3">
                     <div className="space-y-1">
                       <Label
@@ -608,16 +640,21 @@ function CourseModuleCard({
                       <Input
                         id={`module-${index}-trainer-name-${tIndex}`}
                         value={trainer.name}
-                        onChange={(e) =>
-                          onChange((current) => {
-                            const trainers = [...current.trainers]
-                            trainers[tIndex] = {
-                              ...trainers[tIndex],
-                              name: e.target.value,
-                            }
-                            return { ...current, trainers }
-                          })
+                        onChange={
+                          readOnly
+                            ? undefined
+                            : (e) =>
+                                onChange((current) => {
+                                  const trainers = [...current.trainers]
+                                  trainers[tIndex] = {
+                                    ...trainers[tIndex],
+                                    name: e.target.value,
+                                  }
+                                  return { ...current, trainers }
+                                })
                         }
+                        readOnly={readOnly}
+                        className={readOnly ? "border-0 bg-transparent px-0 shadow-none" : undefined}
                         placeholder="Nome e cognome"
                       />
                     </div>
@@ -636,23 +673,29 @@ function CourseModuleCard({
                           el.style.height = "auto"
                           el.style.height = `${el.scrollHeight}px`
                         }}
-                        onChange={(e) =>
-                          onChange((current) => {
-                            const trainers = [...current.trainers]
-                            trainers[tIndex] = {
-                              ...trainers[tIndex],
-                              role: e.target.value,
-                            }
-                            return { ...current, trainers }
-                          })
+                        onChange={
+                          readOnly
+                            ? undefined
+                            : (e) =>
+                                onChange((current) => {
+                                  const trainers = [...current.trainers]
+                                  trainers[tIndex] = {
+                                    ...trainers[tIndex],
+                                    role: e.target.value,
+                                  }
+                                  return { ...current, trainers }
+                                })
                         }
                         onInput={(e) => {
                           const el = e.currentTarget
                           el.style.height = "auto"
                           el.style.height = `${el.scrollHeight}px`
                         }}
+                        readOnly={readOnly}
                         rows={1}
-                        className="min-h-9 resize-none overflow-hidden"
+                        className={`min-h-9 resize-none overflow-hidden ${
+                          readOnly ? "border-0 bg-transparent px-0 shadow-none" : ""
+                        }`}
                         placeholder="Es. Formatore interno"
                       />
                     </div>
@@ -666,16 +709,21 @@ function CourseModuleCard({
                       <Input
                         id={`module-${index}-trainer-company-${tIndex}`}
                         value={trainer.company}
-                        onChange={(e) =>
-                          onChange((current) => {
-                            const trainers = [...current.trainers]
-                            trainers[tIndex] = {
-                              ...trainers[tIndex],
-                              company: e.target.value,
-                            }
-                            return { ...current, trainers }
-                          })
+                        onChange={
+                          readOnly
+                            ? undefined
+                            : (e) =>
+                                onChange((current) => {
+                                  const trainers = [...current.trainers]
+                                  trainers[tIndex] = {
+                                    ...trainers[tIndex],
+                                    company: e.target.value,
+                                  }
+                                  return { ...current, trainers }
+                                })
                         }
+                        readOnly={readOnly}
+                        className={readOnly ? "border-0 bg-transparent px-0 shadow-none" : undefined}
                         placeholder="Azienda del trainer"
                       />
                     </div>
@@ -696,6 +744,7 @@ type CourseModulesSectionProps = {
   documents: DocumentRef[]
   isLoadingDocuments: boolean
   documentsError: string | null
+  readOnly?: boolean
   onModulesChange: (updater: (current: Module[]) => Module[]) => void
 }
 
@@ -705,6 +754,7 @@ export default function CourseModulesSection({
   documents,
   isLoadingDocuments,
   documentsError,
+  readOnly = false,
   onModulesChange,
 }: CourseModulesSectionProps) {
   function updateModule(index: number, updater: (current: Module) => Module) {
@@ -764,6 +814,7 @@ export default function CourseModulesSection({
             documents={documents}
             isLoadingDocuments={isLoadingDocuments}
             documentsError={documentsError}
+            readOnly={readOnly}
             onChange={(updater) => updateModule(index, updater)}
             onUpdateVideoFromDocument={(doc) =>
               updateVideoFromDocument(index, doc)
