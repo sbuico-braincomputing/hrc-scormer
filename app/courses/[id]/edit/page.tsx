@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
+import { useToast } from "@/components/ui/global-toast"
 import CourseModulesSection, {
   DocumentRef,
   Module,
@@ -22,6 +23,7 @@ type Category = {
 type CourseFormState = {
   title: string
   description: string
+  duration: number
   imageFile?: File
   uploadedImageUrl?: string
   dateFrom: string
@@ -92,8 +94,80 @@ function isVideoDocument(doc: DocumentRef): boolean {
   return false
 }
 
+function mapDraftToFormState(draft: any): CourseFormState {
+  const title =
+    draft.course_title ??
+    draft.course_name ??
+    ""
+  const description =
+    draft.course_description ??
+    draft.description ??
+    ""
+
+  const modules = Array.isArray(draft.modules)
+    ? draft.modules
+    : []
+
+  const normalizedModules: Module[] = Array.from(
+    { length: 4 },
+    (_, index) => {
+      const existing = modules[index] ?? {}
+      return {
+        title: existing.title ?? "",
+        description: existing.description ?? "",
+        videoUrl: existing.video_url ?? "",
+        thumbnailUrl: existing.thumbnail_url ?? undefined,
+        videoDocumentId:
+          typeof existing.video_document_id === "string" ||
+          typeof existing.video_document_id === "number"
+            ? String(existing.video_document_id)
+            : undefined,
+        videoSearch: "",
+        selectedDocumentId: existing.document_id ?? undefined,
+        selectedDocumentTitle:
+          typeof existing.document_title === "string"
+            ? existing.document_title
+            : undefined,
+        selectedDocumentFilename:
+          typeof existing.document_filename === "string"
+            ? existing.document_filename
+            : undefined,
+        documentSearch: "",
+        trainers: Array.isArray(existing.trainers)
+          ? existing.trainers
+          : [],
+      }
+    },
+  )
+
+  return {
+    title,
+    description,
+    duration:
+      typeof draft.duration === "number" && Number.isFinite(draft.duration)
+        ? draft.duration
+        : Number(draft.duration) || 0,
+    imageFile: undefined,
+    uploadedImageUrl: draft.image_url_landscape ?? undefined,
+    dateFrom: draft.date_from ?? "",
+    dateTo: draft.date_to ?? "",
+    category: draft.category_id ?? "",
+    company: draft.company ?? "",
+    scormFileName: draft.course_scorm_file ?? undefined,
+    scormFile: undefined,
+    uploadedScormUrl: draft.course_scorm_file ?? undefined,
+    scormOriginalName:
+      draft.course_scorm_original_name ??
+      draft.scormOriginalName ??
+      draft.scormFileName ??
+      undefined,
+    modules: normalizedModules,
+  }
+}
+
 export default function CourseEditPage() {
   const router = useRouter()
+  const { showToast } = useToast()
   const params = useParams<{ id: string }>()
   const searchParams = useSearchParams()
   const isDraft = searchParams.get("draft") === "1"
@@ -108,6 +182,7 @@ export default function CourseEditPage() {
   const [form, setForm] = useState<CourseFormState>({
     title: "",
     description: "",
+    duration: 0,
     imageFile: undefined,
     dateFrom: "",
     dateTo: "",
@@ -176,67 +251,7 @@ export default function CourseEditPage() {
           }
 
           const draft = await res.json()
-
-          const title =
-            draft.course_title ??
-            draft.course_name ??
-            ""
-          const description =
-            draft.course_description ??
-            draft.description ??
-            ""
-
-          const modules = Array.isArray(draft.modules)
-            ? draft.modules
-            : []
-
-          const normalizedModules: Module[] = Array.from(
-            { length: 4 },
-            (_, index) => {
-              const existing = modules[index] ?? {}
-              return {
-                title: existing.title ?? "",
-                description: existing.description ?? "",
-                videoUrl: existing.video_url ?? "",
-                thumbnailUrl: existing.thumbnail_url ?? undefined,
-                videoDocumentId: undefined,
-                videoSearch: "",
-                selectedDocumentId: existing.document_id ?? undefined,
-                selectedDocumentTitle:
-                  typeof existing.document_title === "string"
-                    ? existing.document_title
-                    : undefined,
-                selectedDocumentFilename:
-                  typeof existing.document_filename === "string"
-                    ? existing.document_filename
-                    : undefined,
-                documentSearch: "",
-                trainers: Array.isArray(existing.trainers)
-                  ? existing.trainers
-                  : [],
-              }
-            },
-          )
-
-          setForm({
-            title,
-            description,
-            imageFile: undefined,
-            uploadedImageUrl: draft.image_url_landscape ?? undefined,
-            dateFrom: draft.date_from ?? "",
-            dateTo: draft.date_to ?? "",
-            category: draft.category_id ?? "",
-            company: draft.company ?? "",
-            scormFileName: draft.course_scorm_file ?? undefined,
-            scormFile: undefined,
-            uploadedScormUrl: draft.course_scorm_file ?? undefined,
-            scormOriginalName:
-              draft.course_scorm_original_name ??
-              draft.scormOriginalName ??
-              draft.scormFileName ??
-              undefined,
-            modules: normalizedModules,
-          })
+          setForm(mapDraftToFormState(draft))
         } else {
           const title = searchParams.get("title") ?? ""
           const description = searchParams.get("description") ?? ""
@@ -273,6 +288,57 @@ export default function CourseEditPage() {
 
     loadData()
   }, [isDraft, params.id, searchParams])
+
+  useEffect(() => {
+    let aborted = false
+
+    async function syncDurationFromVideos() {
+      const videoUrls = form.modules
+        .map((module) => module.videoUrl.trim())
+        .filter((url) => url.length > 0 && url.includes("vimeo.com"))
+
+      if (videoUrls.length === 0) {
+        if (!aborted && form.duration !== 0) {
+          setForm((prev) => ({ ...prev, duration: 0 }))
+        }
+        return
+      }
+
+      const uniqueUrls = [...new Set(videoUrls)]
+      const durationMap = new Map<string, number>()
+
+      await Promise.all(
+        uniqueUrls.map(async (url) => {
+          try {
+            const res = await fetch(`/api/video-thumbnail?url=${encodeURIComponent(url)}`)
+            if (!res.ok) return
+            const data = (await res.json()) as { durationSeconds?: number | null }
+            if (typeof data.durationSeconds === "number" && Number.isFinite(data.durationSeconds)) {
+              durationMap.set(url, Math.max(0, Math.round(data.durationSeconds)))
+            }
+          } catch {
+            return
+          }
+        }),
+      )
+
+      let totalSeconds = 0
+      videoUrls.forEach((url) => {
+        totalSeconds += durationMap.get(url) ?? 0
+      })
+      const nextDuration = Math.ceil(totalSeconds / 60)
+
+      if (!aborted && nextDuration !== form.duration) {
+        setForm((prev) => ({ ...prev, duration: nextDuration }))
+      }
+    }
+
+    syncDurationFromVideos()
+
+    return () => {
+      aborted = true
+    }
+  }, [form.modules, form.duration])
 
   useEffect(() => {
     async function loadDocuments() {
@@ -399,6 +465,7 @@ export default function CourseEditPage() {
         course_name: form.title,
         course_description: form.description,
         description: form.description,
+        duration: form.duration,
         image_url_landscape: imageUrl,
         image_url_portrait: null,
         image_url_square: null,
@@ -413,6 +480,7 @@ export default function CourseEditPage() {
           title: module.title,
           description: module.description,
           video_url: module.videoUrl,
+          video_document_id: module.videoDocumentId ?? null,
           thumbnail_url: module.thumbnailUrl ?? null,
           document_id: module.selectedDocumentId ?? null,
           document_title: module.selectedDocumentTitle ?? null,
@@ -437,12 +505,26 @@ export default function CourseEditPage() {
       }
 
       await res.json()
-      router.push("/courses")
+
+      const refreshedDraftRes = await fetch(`/api/courses/drafts/${id}`)
+      if (!refreshedDraftRes.ok) {
+        const data = await refreshedDraftRes.json().catch(() => ({}))
+        const message =
+          typeof (data as any).error === "string"
+            ? (data as any).error
+            : "Salvato, ma impossibile ricaricare la bozza aggiornata"
+        throw new Error(message)
+      }
+
+      const refreshedDraft = await refreshedDraftRes.json()
+      setForm(mapDraftToFormState(refreshedDraft))
+      showToast("Modifiche salvate con successo.", "success")
     } catch (err) {
       console.error("Error updating course draft", err)
       setError(
         err instanceof Error ? err.message : "Errore inatteso nel salvataggio",
       )
+      showToast("Errore durante il salvataggio delle modifiche.", "error")
     } finally {
       setIsUploadingFiles(false)
       setIsSaving(false)
@@ -466,14 +548,22 @@ export default function CourseEditPage() {
               </p>
             )}
           </div>
-          <Button
-            type="submit"
-            form="course-form"
-            className="self-start"
-            disabled={isSaving || isLoading || !isDraft}
-          >
-            {isSaving ? "Salvataggio in corso..." : "Salva modifiche"}
-          </Button>
+          <div className="flex items-center gap-2 self-start">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => router.push("/courses")}
+            >
+              Torna alla lista corsi
+            </Button>
+            <Button
+              type="submit"
+              form="course-form"
+              disabled={isSaving || isLoading || !isDraft}
+            >
+              {isSaving ? "Salvataggio in corso..." : "Salva modifiche"}
+            </Button>
+          </div>
         </header>
 
         {isLoading ? (
@@ -705,6 +795,10 @@ export default function CourseEditPage() {
                       }
                       placeholder="Es. ACME S.p.A."
                     />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="duration">Durata (minuti)</Label>
+                    <Input id="duration" value={String(form.duration)} readOnly />
                   </div>
                 </div>
 

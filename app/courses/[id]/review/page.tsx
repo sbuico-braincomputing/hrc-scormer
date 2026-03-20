@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import { useToast } from "@/components/ui/global-toast"
 import CourseModulesSection, {
   Module as FormModule,
 } from "@/app/courses/_components/course-modules-section"
@@ -36,6 +37,7 @@ type DraftCourse = {
   course_name?: string | null
   course_description?: string | null
   description?: string | null
+  duration?: number | string | null
   image_url_landscape?: string | null
   category_id?: string | null
   company?: string | null
@@ -61,6 +63,7 @@ function getBasename(path: string | null | undefined): string | undefined {
 
 export default function CourseReviewPage() {
   const router = useRouter()
+  const { showToast } = useToast()
   const params = useParams<{ id: string }>()
   const searchParams = useSearchParams()
   const isDraft = searchParams.get("draft") === "1"
@@ -71,6 +74,7 @@ export default function CourseReviewPage() {
   const [isPublishing, setIsPublishing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [apiMissingFields, setApiMissingFields] = useState<string[]>([])
+  const [publishHint, setPublishHint] = useState<string | null>(null)
 
   useEffect(() => {
     async function loadDraft() {
@@ -185,6 +189,7 @@ export default function CourseReviewPage() {
       setIsPublishing(true)
       setError(null)
       setApiMissingFields([])
+      setPublishHint(null)
 
       const res = await fetch(`/api/courses/drafts/${courseId}/publish`, {
         method: "POST",
@@ -192,21 +197,37 @@ export default function CourseReviewPage() {
 
       const data = (await res.json().catch(() => ({}))) as {
         error?: string
+        code?: string
+        details?: { compensationWarning?: string }
         missingFields?: string[]
         message?: string
+        publishedCourseId?: number
       }
 
       if (!res.ok) {
         if (Array.isArray(data.missingFields)) {
           setApiMissingFields(data.missingFields)
         }
+        if (data.code === "FTP_PATHS_MISSING" || data.code === "FTP_ENV_MISSING") {
+          setPublishHint("Configurazione FTP da verificare nelle variabili ambiente.")
+        }
+        if (data.code === "LOCAL_FILES_MISSING") {
+          setPublishHint(
+            "File locali mancanti: riapri la bozza, ricarica SCORM/immagine e salva.",
+          )
+        }
+        if (typeof data.details?.compensationWarning === "string") {
+          setPublishHint(data.details.compensationWarning)
+        }
         throw new Error(data.error ?? "Impossibile pubblicare il corso")
       }
 
+      showToast(data.message ?? "Corso pubblicato con successo.", "success")
       router.push("/courses")
     } catch (err) {
       console.error("Errore pubblicazione bozza", err)
       setError(err instanceof Error ? err.message : "Errore di pubblicazione")
+      showToast("Errore durante la pubblicazione del corso.", "error")
     } finally {
       setIsPublishing(false)
     }
@@ -224,14 +245,18 @@ export default function CourseReviewPage() {
               Verifica i dettagli del corso in sola lettura prima della pubblicazione.
             </p>
           </div>
-          <Button
-            type="button"
-            onClick={handlePublish}
-            className="self-start"
-            disabled={isPublishing || isLoading || localMissingFields.length > 0}
-          >
-            {isPublishing ? "Pubblicazione in corso..." : "Conferma pubblicazione"}
-          </Button>
+          <div className="flex items-center gap-2 self-start">
+            <Button asChild type="button" variant="outline">
+              <Link href="/courses">Torna alla lista corsi</Link>
+            </Button>
+            <Button
+              type="button"
+              onClick={handlePublish}
+              disabled={isPublishing || isLoading || localMissingFields.length > 0}
+            >
+              {isPublishing ? "Pubblicazione in corso..." : "Conferma pubblicazione"}
+            </Button>
+          </div>
         </header>
 
         {isLoading && (
@@ -276,6 +301,11 @@ export default function CourseReviewPage() {
                     <li key={field}>{field}</li>
                   ))}
                 </ul>
+              </div>
+            )}
+            {publishHint && (
+              <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                {publishHint}
               </div>
             )}
             <div className="grid gap-8 lg:grid-cols-[minmax(0,2fr)_minmax(0,2fr)]">
@@ -363,6 +393,14 @@ export default function CourseReviewPage() {
                       <Label>Azienda</Label>
                       <Input
                         value={course.company ?? ""}
+                        readOnly
+                        className="border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Durata (minuti)</Label>
+                      <Input
+                        value={String(course.duration ?? 0)}
                         readOnly
                         className="border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
                       />

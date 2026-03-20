@@ -17,6 +17,15 @@ type DraftRow = {
   updated_at: Date
 }
 
+function isMissingDeletedAtColumn(error: unknown) {
+  if (!error || typeof error !== "object") return false
+  const candidate = error as { code?: unknown; sqlMessage?: unknown }
+  if (candidate.code === "ER_BAD_FIELD_ERROR") {
+    return String(candidate.sqlMessage ?? "").includes("deleted_at")
+  }
+  return false
+}
+
 export async function GET(
   _request: NextRequest,
   { params }: RouteParams,
@@ -32,11 +41,24 @@ export async function GET(
       )
     }
 
-    const draft = (await (db as any)
-      .selectFrom(`${DATABASE_PREFIX}drafts`)
-      .select(["id", "data", "created_at", "updated_at"])
-      .where("id", "=", numericId)
-      .executeTakeFirst()) as DraftRow | undefined
+    let draft: DraftRow | undefined
+    try {
+      draft = (await (db as any)
+        .selectFrom(`${DATABASE_PREFIX}drafts`)
+        .select(["id", "data", "created_at", "updated_at"])
+        .where("id", "=", numericId)
+        .where("deleted_at", "is", null)
+        .executeTakeFirst()) as DraftRow | undefined
+    } catch (error) {
+      if (!isMissingDeletedAtColumn(error)) {
+        throw error
+      }
+      draft = (await (db as any)
+        .selectFrom(`${DATABASE_PREFIX}drafts`)
+        .select(["id", "data", "created_at", "updated_at"])
+        .where("id", "=", numericId)
+        .executeTakeFirst()) as DraftRow | undefined
+    }
 
     if (!draft) {
       return NextResponse.json(
@@ -100,10 +122,22 @@ export async function DELETE(
       )
     }
 
-    await (db as any)
-      .deleteFrom(`${DATABASE_PREFIX}drafts`)
-      .where("id", "=", numericId)
-      .executeTakeFirst()
+    try {
+      await (db as any)
+        .updateTable(`${DATABASE_PREFIX}drafts`)
+        .set({ deleted_at: new Date() })
+        .where("id", "=", numericId)
+        .where("deleted_at", "is", null)
+        .executeTakeFirst()
+    } catch (error) {
+      if (!isMissingDeletedAtColumn(error)) {
+        throw error
+      }
+      await (db as any)
+        .deleteFrom(`${DATABASE_PREFIX}drafts`)
+        .where("id", "=", numericId)
+        .executeTakeFirst()
+    }
 
     return new Response(null, { status: 204 })
   } catch (error) {
@@ -149,11 +183,28 @@ export async function PUT(
     const body = await request.json()
     const draftData = body ?? {}
 
-    const existingDraft = await (db as any)
-      .selectFrom(`${DATABASE_PREFIX}drafts`)
-      .select(["id"])
-      .where("id", "=", numericId)
-      .executeTakeFirst()
+    let existingDraft:
+      | {
+          id: number
+        }
+      | undefined
+    try {
+      existingDraft = await (db as any)
+        .selectFrom(`${DATABASE_PREFIX}drafts`)
+        .select(["id"])
+        .where("id", "=", numericId)
+        .where("deleted_at", "is", null)
+        .executeTakeFirst()
+    } catch (error) {
+      if (!isMissingDeletedAtColumn(error)) {
+        throw error
+      }
+      existingDraft = await (db as any)
+        .selectFrom(`${DATABASE_PREFIX}drafts`)
+        .select(["id"])
+        .where("id", "=", numericId)
+        .executeTakeFirst()
+    }
 
     if (!existingDraft) {
       return NextResponse.json(

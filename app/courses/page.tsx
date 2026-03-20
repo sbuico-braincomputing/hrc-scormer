@@ -8,6 +8,7 @@ import { Eye, Pencil, Rocket, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { useToast } from "@/components/ui/global-toast"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -49,6 +50,7 @@ type DraftsApiResponse = {
 
 export default function CoursesListPage() {
   const router = useRouter()
+  const { showToast } = useToast()
   const [drafts, setDrafts] = useState<Course[]>([])
   const [courses, setCourses] = useState<Course[]>([])
   const [search, setSearch] = useState("")
@@ -145,6 +147,7 @@ export default function CoursesListPage() {
       } catch (err) {
         console.error(err)
         setError("Non è stato possibile caricare i corsi.")
+        showToast("Errore nel caricamento dei corsi.", "error")
       } finally {
         isFetchingRef.current = false
         setIsLoading(false)
@@ -194,14 +197,16 @@ export default function CoursesListPage() {
       }
 
       setDrafts((prev) => prev.filter((c) => c.id !== draftToDelete.id))
+      showToast("Bozza eliminata con successo.", "success")
     } catch (err) {
       console.error(err)
       setError("Non è stato possibile eliminare la bozza.")
+      showToast("Errore durante l'eliminazione della bozza.", "error")
     } finally {
       setDeletingId(null)
       setDraftToDelete(null)
     }
-  }, [draftToDelete])
+  }, [draftToDelete, showToast])
 
   return (
     <div className="min-h-screen bg-zinc-50 py-10 text-zinc-900">
@@ -306,10 +311,10 @@ export default function CoursesListPage() {
               return (
                 <article
                   key={course.id}
-                  className="flex flex-col gap-2 py-3 sm:flex-row sm:items-start sm:justify-between"
+                  className="flex flex-col gap-3 py-3 sm:flex-row sm:items-start sm:justify-between"
                 >
-                  <div className="flex w-full items-start gap-3">
-                    <div className="relative h-32 w-32 shrink-0 overflow-hidden rounded-md bg-zinc-100">
+                  <div className="flex w-full min-w-0 items-start gap-3">
+                    <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-md bg-zinc-100 sm:h-32 sm:w-32">
                       {imageUrl && (
                         <img
                           src={imageUrl}
@@ -318,12 +323,14 @@ export default function CoursesListPage() {
                         />
                       )}
                     </div>
-                    <div className="space-y-1">
+                    <div className="min-w-0 space-y-1">
                       <h2
-                        className="flex items-center gap-2 text-sm font-semibold tracking-tight"
+                        className="flex flex-wrap items-center gap-2 text-sm font-semibold tracking-tight"
                         title={title}
                       >
-                        <span className="block max-w-[540px] truncate">{title}</span>
+                        <span className="block min-w-0 max-w-full wrap-break-word sm:max-w-[540px] sm:truncate">
+                          {title}
+                        </span>
 
                         {course.isDraft ? (
                           <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800">
@@ -345,13 +352,13 @@ export default function CoursesListPage() {
                       )}
                     </div>
                   </div>
-                  <div className="flex flex-col items-start gap-1 text-right text-xs text-zinc-500 sm:items-end">
+                  <div className="flex flex-col items-start gap-2 text-xs text-zinc-500 sm:items-end sm:text-right">
                     {createdAt && (
-                      <span className="whitespace-nowrap">
+                      <span className="sm:whitespace-nowrap">
                         Creato il {createdAt}
                       </span>
                     )}
-                    <div className="flex flex-row items-center gap-2">
+                    <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
                       {course.isDraft ? (
                         <div className="relative group/action">
                           <Button
@@ -403,7 +410,7 @@ export default function CoursesListPage() {
                               <Rocket />
                             </Button>
                             <span className="pointer-events-none absolute -top-8 left-1/2 z-10 -translate-x-1/2 rounded bg-zinc-900 px-2 py-1 text-[10px] font-medium whitespace-nowrap text-white opacity-0 shadow transition-opacity group-hover/action:opacity-100">
-                              Pubblica bozza
+                              Pubblica SCORM
                             </span>
                           </div>
                           <div className="relative group/action">

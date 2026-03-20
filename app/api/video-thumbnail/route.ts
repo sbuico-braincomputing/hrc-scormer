@@ -21,9 +21,11 @@ function getYouTubeThumbnail(url: URL): string | undefined {
   return `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`
 }
 
-async function getVimeoThumbnail(url: URL): Promise<string | undefined> {
+async function getVimeoMetadata(
+  url: URL,
+): Promise<{ thumbnailUrl?: string; durationSeconds?: number }> {
   if (!url.hostname.includes("vimeo.com")) {
-    return undefined
+    return {}
   }
 
   try {
@@ -32,14 +34,22 @@ async function getVimeoThumbnail(url: URL): Promise<string | undefined> {
     )}`
 
     const res = await fetch(oembedUrl)
-    if (!res.ok) {
-      return undefined
+    if (!res.ok) return {}
+
+    const data = (await res.json()) as {
+      thumbnail_url?: string
+      duration?: number
     }
 
-    const data = (await res.json()) as { thumbnail_url?: string }
-    return data.thumbnail_url
+    return {
+      thumbnailUrl: data.thumbnail_url,
+      durationSeconds:
+        typeof data.duration === "number" && Number.isFinite(data.duration)
+          ? Math.max(0, Math.round(data.duration))
+          : undefined,
+    }
   } catch {
-    return undefined
+    return {}
   }
 }
 
@@ -59,15 +69,27 @@ export async function GET(request: NextRequest) {
 
     const youtubeThumb = getYouTubeThumbnail(parsed)
     if (youtubeThumb) {
-      return NextResponse.json({ thumbnailUrl: youtubeThumb }, { status: 200 })
+      return NextResponse.json(
+        { thumbnailUrl: youtubeThumb, durationSeconds: null },
+        { status: 200 },
+      )
     }
 
-    const vimeoThumb = await getVimeoThumbnail(parsed)
-    if (vimeoThumb) {
-      return NextResponse.json({ thumbnailUrl: vimeoThumb }, { status: 200 })
+    const vimeoMetadata = await getVimeoMetadata(parsed)
+    if (vimeoMetadata.thumbnailUrl || vimeoMetadata.durationSeconds !== undefined) {
+      return NextResponse.json(
+        {
+          thumbnailUrl: vimeoMetadata.thumbnailUrl ?? null,
+          durationSeconds: vimeoMetadata.durationSeconds ?? null,
+        },
+        { status: 200 },
+      )
     }
 
-    return NextResponse.json({ thumbnailUrl: null }, { status: 200 })
+    return NextResponse.json(
+      { thumbnailUrl: null, durationSeconds: null },
+      { status: 200 },
+    )
   } catch {
     return NextResponse.json(
       { error: "URL video non valido" },

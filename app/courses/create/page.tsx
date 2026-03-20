@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
+import { useToast } from "@/components/ui/global-toast"
 import CourseModulesSection, {
   DocumentRef,
   Module,
@@ -21,6 +22,7 @@ type Category = {
 type CourseFormState = {
   title: string
   description: string
+  duration: number
   imageFile?: File
   dateFrom: string
   dateTo: string
@@ -32,6 +34,7 @@ type CourseFormState = {
 
 export default function CourseCreatePage() {
   const router = useRouter()
+  const { showToast } = useToast()
   const [categories, setCategories] = useState<Category[]>([])
   const [isLoadingCategories, setIsLoadingCategories] = useState(true)
   const [categoriesError, setCategoriesError] = useState<string | null>(null)
@@ -41,6 +44,7 @@ export default function CourseCreatePage() {
   const [form, setForm] = useState<CourseFormState>({
     title: "",
     description: "",
+    duration: 0,
     imageFile: undefined,
     dateFrom: "",
     dateTo: "",
@@ -92,6 +96,57 @@ export default function CourseCreatePage() {
   }, [])
 
   useEffect(() => {
+    let aborted = false
+
+    async function syncDurationFromVideos() {
+      const videoUrls = form.modules
+        .map((module) => module.videoUrl.trim())
+        .filter((url) => url.length > 0 && url.includes("vimeo.com"))
+
+      if (videoUrls.length === 0) {
+        if (!aborted && form.duration !== 0) {
+          setForm((prev) => ({ ...prev, duration: 0 }))
+        }
+        return
+      }
+
+      const uniqueUrls = [...new Set(videoUrls)]
+      const durationMap = new Map<string, number>()
+
+      await Promise.all(
+        uniqueUrls.map(async (url) => {
+          try {
+            const res = await fetch(`/api/video-thumbnail?url=${encodeURIComponent(url)}`)
+            if (!res.ok) return
+            const data = (await res.json()) as { durationSeconds?: number | null }
+            if (typeof data.durationSeconds === "number" && Number.isFinite(data.durationSeconds)) {
+              durationMap.set(url, Math.max(0, Math.round(data.durationSeconds)))
+            }
+          } catch {
+            return
+          }
+        }),
+      )
+
+      let totalSeconds = 0
+      videoUrls.forEach((url) => {
+        totalSeconds += durationMap.get(url) ?? 0
+      })
+      const nextDuration = Math.ceil(totalSeconds / 60)
+
+      if (!aborted && nextDuration !== form.duration) {
+        setForm((prev) => ({ ...prev, duration: nextDuration }))
+      }
+    }
+
+    syncDurationFromVideos()
+
+    return () => {
+      aborted = true
+    }
+  }, [form.modules, form.duration])
+
+  useEffect(() => {
     async function loadCategories() {
       try {
         setIsLoadingCategories(true)
@@ -135,6 +190,7 @@ export default function CourseCreatePage() {
         course_name: form.title,
         course_description: form.description,
         description: form.description,
+        duration: form.duration,
         image_url_landscape: null,
         image_url_portrait: null,
         image_url_square: null,
@@ -147,6 +203,7 @@ export default function CourseCreatePage() {
           title: module.title,
           description: module.description,
           video_url: module.videoUrl,
+          video_document_id: module.videoDocumentId ?? null,
           thumbnail_url: module.thumbnailUrl ?? null,
           document_id: module.selectedDocumentId ?? null,
           document_title: module.selectedDocumentTitle ?? null,
@@ -171,12 +228,14 @@ export default function CourseCreatePage() {
       }
 
       await res.json()
+      showToast("Bozza corso salvata con successo.", "success")
       router.push("/courses")
     } catch (err) {
       console.error("Error saving course draft", err)
       setError(
         err instanceof Error ? err.message : "Errore inatteso nel salvataggio",
       )
+      showToast("Errore durante il salvataggio della bozza.", "error")
     } finally {
       setIsSaving(false)
     }
@@ -379,6 +438,10 @@ export default function CourseCreatePage() {
                     }
                     placeholder="Es. ACME S.p.A."
                   />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="duration">Durata (minuti)</Label>
+                  <Input id="duration" value={String(form.duration)} readOnly />
                 </div>
               </div>
 

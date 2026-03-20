@@ -15,16 +15,38 @@ type DraftInsertResult = {
   insertId: number | bigint
 }
 
+function isMissingDeletedAtColumn(error: unknown) {
+  if (!error || typeof error !== "object") return false
+  const candidate = error as { code?: unknown; sqlMessage?: unknown }
+  if (candidate.code === "ER_BAD_FIELD_ERROR") {
+    return String(candidate.sqlMessage ?? "").includes("deleted_at")
+  }
+  return false
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const q = searchParams.get("q")?.trim().toLowerCase() ?? ""
 
-    const draftRows = (await (db as any)
-      .selectFrom(`${DATABASE_PREFIX}drafts`)
-      .select(["id", "data", "created_at", "updated_at"])
-      .orderBy("created_at", "desc")
-      .execute()) as DraftRow[]
+    let draftRows: DraftRow[]
+    try {
+      draftRows = (await (db as any)
+        .selectFrom(`${DATABASE_PREFIX}drafts`)
+        .select(["id", "data", "created_at", "updated_at"])
+        .where("deleted_at", "is", null)
+        .orderBy("created_at", "desc")
+        .execute()) as DraftRow[]
+    } catch (error) {
+      if (!isMissingDeletedAtColumn(error)) {
+        throw error
+      }
+      draftRows = (await (db as any)
+        .selectFrom(`${DATABASE_PREFIX}drafts`)
+        .select(["id", "data", "created_at", "updated_at"])
+        .orderBy("created_at", "desc")
+        .execute()) as DraftRow[]
+    }
 
     const parsedDrafts = draftRows.map((row) => {
       const data =
