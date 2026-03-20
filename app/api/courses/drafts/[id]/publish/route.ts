@@ -130,6 +130,10 @@ function getLocalUploadPath(uploadUrl: string | null | undefined) {
   return path.join(process.cwd(), "public", relative)
 }
 
+function normalizeCourseLanguage(value: unknown): "it" | "en" {
+  return value === "en" ? "en" : "it"
+}
+
 function getFtpConfig() {
   const host = process.env.FTP_HOST
   const user = process.env.FTP_USER
@@ -474,7 +478,7 @@ export async function POST(
             image_url_landscape: dbImagePath,
             image_url_square: dbImagePath,
             min_perc_complete: 80,
-            language: "it",
+            language: normalizeCourseLanguage(payload.language),
           })
           .executeTakeFirst()
 

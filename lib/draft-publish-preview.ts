@@ -20,6 +20,7 @@ export type DraftPayload = {
   course_name?: string | null
   course_description?: string | null
   description?: string | null
+  language?: "it" | "en" | null
   image_url_landscape?: string | null
   category_id?: string | null
   company?: string | null

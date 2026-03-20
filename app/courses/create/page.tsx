@@ -22,6 +22,7 @@ type Category = {
 type CourseFormState = {
   title: string
   description: string
+  language: "it" | "en"
   duration: number
   imageFile?: File
   dateFrom: string
@@ -44,6 +45,7 @@ export default function CourseCreatePage() {
   const [form, setForm] = useState<CourseFormState>({
     title: "",
     description: "",
+    language: "it",
     duration: 0,
     imageFile: undefined,
     dateFrom: "",
@@ -206,6 +208,7 @@ export default function CourseCreatePage() {
         course_name: form.title,
         course_description: form.description,
         description: form.description,
+        language: form.language,
         duration: form.duration,
         image_url_landscape: null,
         image_url_portrait: null,
@@ -402,6 +405,28 @@ export default function CourseCreatePage() {
               </div>
 
               <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="language">Lingua</Label>
+                  <div className="relative">
+                    <select
+                      id="language"
+                      className="flex h-9 w-full appearance-none rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                      value={form.language}
+                      onChange={(e) =>
+                        setForm((prev) => ({
+                          ...prev,
+                          language: e.target.value === "en" ? "en" : "it",
+                        }))
+                      }
+                    >
+                      <option value="it">Italiano (it)</option>
+                      <option value="en">English (en)</option>
+                    </select>
+                    <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-xs text-zinc-500">
+                      ▼
+                    </span>
+                  </div>
+                </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="category">Categoria</Label>
                   <div className="relative">
