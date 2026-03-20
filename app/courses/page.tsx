@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Eye, Pencil, Rocket, Trash2 } from "lucide-react"
 
@@ -51,9 +51,41 @@ type DraftsApiResponse = {
   totalCount: number
 }
 
+function parseSocialUrls(envValue: string) {
+  return envValue
+    .split(",")
+    .map((value) => value.trim().replace(/\/+$/, ""))
+    .filter(Boolean)
+}
+
+function buildEyeUrlForDomain(eyeUrl: string, socialUrl: string | null) {
+  if (!socialUrl) {
+    return eyeUrl
+  }
+
+  try {
+    const sourceUrl = new URL(eyeUrl)
+    const domainUrl = new URL(socialUrl)
+    return `${domainUrl.origin}${sourceUrl.pathname}${sourceUrl.search}${sourceUrl.hash}`
+  } catch {
+    if (eyeUrl.startsWith("/")) {
+      return `${socialUrl}${eyeUrl}`
+    }
+
+    return eyeUrl
+  }
+}
+
 export default function CoursesListPage() {
   const router = useRouter()
   const { showToast } = useToast()
+  const socialUrls = useMemo(
+    () =>
+      parseSocialUrls(
+        process.env.SOCIAL_URL ?? process.env.NEXT_PUBLIC_SOCIAL_URL ?? "",
+      ),
+    [],
+  )
   const [drafts, setDrafts] = useState<Course[]>([])
   const [courses, setCourses] = useState<Course[]>([])
   const [search, setSearch] = useState("")
@@ -185,6 +217,31 @@ export default function CoursesListPage() {
       window.removeEventListener("scroll", handleScroll)
     }
   }, [fetchCourses, hasMore, isInitialLoading, isLoading])
+
+  useEffect(() => {
+    const handleClickOutsideDropdown = (event: MouseEvent) => {
+      const target = event.target
+      if (!(target instanceof Node)) {
+        return
+      }
+
+      const openDropdowns = document.querySelectorAll<HTMLDetailsElement>(
+        'details[data-eye-dropdown="true"][open]',
+      )
+
+      openDropdowns.forEach((dropdown) => {
+        if (!dropdown.contains(target)) {
+          dropdown.open = false
+        }
+      })
+    }
+
+    document.addEventListener("click", handleClickOutsideDropdown)
+
+    return () => {
+      document.removeEventListener("click", handleClickOutsideDropdown)
+    }
+  }, [])
 
   const handleConfirmDeleteDraft = useCallback(async () => {
     if (!draftToDelete) return
@@ -389,16 +446,47 @@ export default function CoursesListPage() {
                         </div>
                       ) : (
                         <div className="relative group/action">
-                          <Button asChild type="button" variant="outline" size="icon-sm">
-                            <Link
-                              href={course.eye_url ?? "#"}
-                              aria-label="Anteprima corso"
-                              target={course.eye_url ? "_blank" : undefined}
-                              rel={course.eye_url ? "noopener noreferrer" : undefined}
-                            >
-                              <Eye />
-                            </Link>
-                          </Button>
+                          {course.eye_url && socialUrls.length > 1 ? (
+                            <details className="relative" data-eye-dropdown="true">
+                              <summary
+                                aria-label="Scegli dominio anteprima corso"
+                                className="flex h-8 w-8 cursor-pointer list-none items-center justify-center rounded-md border border-input bg-background text-foreground transition-colors hover:bg-accent hover:text-accent-foreground [&::-webkit-details-marker]:hidden"
+                              >
+                                <Eye className="h-4 w-4" />
+                              </summary>
+                              <div className="absolute top-9 right-0 z-20 min-w-44 rounded-md border border-zinc-200 bg-white p-1 shadow-lg">
+                                {socialUrls.map((socialUrl) => (
+                                  <a
+                                    key={socialUrl}
+                                    href={buildEyeUrlForDomain(course.eye_url!, socialUrl)}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="block rounded px-2 py-1.5 text-left text-xs text-zinc-700 hover:bg-zinc-100"
+                                  >
+                                    {socialUrl.replace(/^https?:\/\//, "")}
+                                  </a>
+                                ))}
+                              </div>
+                            </details>
+                          ) : (
+                            <Button asChild type="button" variant="outline" size="icon-sm">
+                              <Link
+                                href={
+                                  course.eye_url
+                                    ? buildEyeUrlForDomain(
+                                      course.eye_url,
+                                      socialUrls[0] ?? null,
+                                    )
+                                    : "#"
+                                }
+                                aria-label="Anteprima corso"
+                                target={course.eye_url ? "_blank" : undefined}
+                                rel={course.eye_url ? "noopener noreferrer" : undefined}
+                              >
+                                <Eye />
+                              </Link>
+                            </Button>
+                          )}
                           <span className="pointer-events-none absolute -top-8 left-1/2 z-10 -translate-x-1/2 rounded bg-zinc-900 px-2 py-1 text-[10px] font-medium whitespace-nowrap text-white opacity-0 shadow transition-opacity group-hover/action:opacity-100">
                             Visualizza corso
                           </span>

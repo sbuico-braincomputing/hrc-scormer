@@ -3,7 +3,36 @@ import { NextRequest, NextResponse } from "next/server"
 import socialDb from "@/lib/social-db"
 
 const PAGE_SIZE = 10
-const COURSES_BASE_URL = process.env.COURSES_BASE_URL ?? ""
+const COURSES_PATH = "/learning/lms/lms-hrc-courses"
+
+function getPrimarySocialUrl() {
+  const socialUrls = (process.env.SOCIAL_URL ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean)
+
+  if (socialUrls.length > 0) {
+    return socialUrls[0]
+  }
+
+  return process.env.NEXT_PUBLIC_SOCIAL_URL?.trim() ?? ""
+}
+
+function getCoursesBaseUrl() {
+  const coursesBaseUrl = (process.env.COURSES_BASE_URL ?? "").trim()
+  const hasMultipleSocialUrls = (process.env.SOCIAL_URL ?? "").includes(",")
+
+  if (coursesBaseUrl && !hasMultipleSocialUrls) {
+    return coursesBaseUrl.replace(/\/+$/, "")
+  }
+
+  const primarySocialUrl = getPrimarySocialUrl()
+  if (!primarySocialUrl) {
+    return ""
+  }
+
+  return `${primarySocialUrl.replace(/\/+$/, "")}${COURSES_PATH}`
+}
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
@@ -74,7 +103,7 @@ export async function GET(request: NextRequest) {
       .limit(limit)
       .execute()
 
-    const normalizedBaseUrl = COURSES_BASE_URL.replace(/\/+$/, "")
+    const normalizedBaseUrl = getCoursesBaseUrl()
     const items = courses.map((course) => {
       const categoryId = course.category_id
       const courseId = course.course_id
