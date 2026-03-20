@@ -249,6 +249,7 @@ export async function buildPublishPreview(
 
   const scormFilename = `${resolvedCode.resolvedCourseCode}${scormExt}`
   const imageFilename = `${resolvedCode.resolvedCourseCode}${imageExt}`
+  const dbImagePath = `/img/lmshrc/${imageFilename}`
 
   const scormPaths = parseCsvPaths(process.env.FTP_SCORM_PATHS)
   const imagePaths = parseCsvPaths(process.env.FTP_IMAGE_PATHS)
@@ -286,8 +287,8 @@ export async function buildPublishPreview(
     `  ${toSqlLiteral(data.category_id ?? null)},`,
     `  ${toSqlLiteral(scormFilename)},`,
     "  '1',",
-    `  ${toSqlLiteral(imageFilename)},`,
-    `  ${toSqlLiteral(imageFilename)},`,
+    `  ${toSqlLiteral(dbImagePath)},`,
+    `  ${toSqlLiteral(dbImagePath)},`,
     "  80,",
     "  'it'",
     ");",

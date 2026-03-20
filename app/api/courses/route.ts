@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server"
 import socialDb from "@/lib/social-db"
 
 const PAGE_SIZE = 10
+const COURSES_BASE_URL = process.env.COURSES_BASE_URL ?? ""
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
@@ -28,6 +29,8 @@ export async function GET(request: NextRequest) {
       )
       .select([
         "courses.id",
+        "courses.course_id",
+        "courses.category_id",
         "courses.image_url_landscape",
         "courses.image_url_portrait",
         "courses.image_url_square",
@@ -71,12 +74,32 @@ export async function GET(request: NextRequest) {
       .limit(limit)
       .execute()
 
+    const normalizedBaseUrl = COURSES_BASE_URL.replace(/\/+$/, "")
+    const items = courses.map((course) => {
+      const categoryId = course.category_id
+      const courseId = course.course_id
+
+      const eyeUrl =
+        normalizedBaseUrl &&
+        categoryId !== null &&
+        categoryId !== undefined &&
+        courseId !== null &&
+        courseId !== undefined
+          ? `${normalizedBaseUrl}/${categoryId}/${courseId}`
+          : null
+
+      return {
+        ...course,
+        eye_url: eyeUrl,
+      }
+    })
+
     const nextCursor =
       courses.length === limit ? courses[courses.length - 1]?.id ?? null : null
 
     return NextResponse.json(
       {
-        items: courses,
+        items,
         totalCount: totalResult?.totalCount ?? 0,
         nextCursor,
         hasMore: Boolean(nextCursor),

@@ -22,6 +22,9 @@ import {
 
 type Course = {
   id: number
+  course_id?: number | null
+  category_id?: number | null
+  eye_url?: string | null
   isDraft?: boolean
   image_url_landscape: string | null
   image_url_portrait: string | null
@@ -387,7 +390,12 @@ export default function CoursesListPage() {
                       ) : (
                         <div className="relative group/action">
                           <Button asChild type="button" variant="outline" size="icon-sm">
-                            <Link href="#" aria-label="Anteprima corso">
+                            <Link
+                              href={course.eye_url ?? "#"}
+                              aria-label="Anteprima corso"
+                              target={course.eye_url ? "_blank" : undefined}
+                              rel={course.eye_url ? "noopener noreferrer" : undefined}
+                            >
                               <Eye />
                             </Link>
                           </Button>

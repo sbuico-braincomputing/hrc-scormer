@@ -318,6 +318,7 @@ export async function POST(
     }
 
     const preview = await buildPublishPreview(payload)
+    const dbImagePath = `/img/lmshrc/${preview.imageFilename}`
     const scormLocalPath = getLocalUploadPath(payload.course_scorm_file)
     const imageLocalPath = getLocalUploadPath(payload.image_url_landscape)
 
@@ -384,8 +385,8 @@ export async function POST(
             category_id: payload.category_id ? Number(payload.category_id) : null,
             course_scorm_file: preview.scormFilename,
             course_scorm_available: "1",
-            image_url_landscape: preview.imageFilename,
-            image_url_square: preview.imageFilename,
+            image_url_landscape: dbImagePath,
+            image_url_square: dbImagePath,
             min_perc_complete: 80,
             language: "it",
           })
