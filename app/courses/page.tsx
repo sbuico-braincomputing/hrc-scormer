@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
-import { Eye, Pencil, Rocket, Trash2 } from "lucide-react"
+import { Eye, Pencil, Rocket, RotateCcw, Trash2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -37,6 +37,8 @@ type Course = {
   description: string | null
   created_at: string | null
   updated_at: string | null
+  deleted_at?: string | null
+  published_course_id?: number | null
 }
 
 type ApiResponse = {
@@ -87,6 +89,7 @@ export default function CoursesListPage() {
     [],
   )
   const [drafts, setDrafts] = useState<Course[]>([])
+  const [allDrafts, setAllDrafts] = useState<Course[]>([])
   const [courses, setCourses] = useState<Course[]>([])
   const [search, setSearch] = useState("")
   const [debouncedSearch, setDebouncedSearch] = useState("")
@@ -99,6 +102,8 @@ export default function CoursesListPage() {
   const [error, setError] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<number | null>(null)
   const [draftToDelete, setDraftToDelete] = useState<Course | null>(null)
+  const [restoringDraftId, setRestoringDraftId] = useState<number | null>(null)
+  const [draftToRestore, setDraftToRestore] = useState<Course | null>(null)
   const isFetchingRef = useRef(false)
 
   useEffect(() => {
@@ -122,6 +127,7 @@ export default function CoursesListPage() {
       if (isReset) {
         setIsInitialLoading(true)
         setDrafts([])
+        setAllDrafts([])
         setCourses([])
         setCursor(null)
         setHasMore(true)
@@ -141,20 +147,20 @@ export default function CoursesListPage() {
             draftsParams.set("q", debouncedSearch)
           }
 
-          const draftsRes = await fetch(
-            `/api/courses/drafts?${draftsParams.toString()}`,
-            {
-              method: "GET",
-            },
-          )
+          draftsParams.set("includeDeleted", "1")
+          const draftsRes = await fetch(`/api/courses/drafts?${draftsParams.toString()}`, {
+            method: "GET",
+          })
 
           if (!draftsRes.ok) {
             throw new Error("Errore nella chiamata API per le bozze")
           }
 
           const draftsData: DraftsApiResponse = await draftsRes.json()
-          setDrafts(draftsData.items)
-          setDraftsTotalCount(draftsData.totalCount)
+          const activeDrafts = draftsData.items.filter((item) => !item.deleted_at)
+          setAllDrafts(draftsData.items)
+          setDrafts(activeDrafts)
+          setDraftsTotalCount(activeDrafts.length)
         }
 
         const params = new URLSearchParams()
@@ -268,6 +274,39 @@ export default function CoursesListPage() {
     }
   }, [draftToDelete, showToast])
 
+  const restoreDraftByCourseId = useMemo(() => {
+    const entries = allDrafts
+      .filter((item) => item.deleted_at && item.published_course_id)
+      .map((item) => [Number(item.published_course_id), item] as const)
+    return new Map<number, Course>(entries)
+  }, [allDrafts])
+
+  const handleConfirmRestoreDraft = useCallback(async () => {
+    if (!draftToRestore) return
+
+    try {
+      setRestoringDraftId(draftToRestore.id)
+      const res = await fetch(`/api/courses/drafts/${draftToRestore.id}/restore`, {
+        method: "POST",
+      })
+
+      const data = (await res.json().catch(() => ({}))) as { error?: string; message?: string }
+      if (!res.ok) {
+        throw new Error(data.error ?? "Errore nel ripristino della bozza")
+      }
+
+      showToast(data.message ?? "Bozza ripristinata con successo.", "success")
+      await fetchCourses({ reset: true })
+    } catch (err) {
+      console.error(err)
+      setError("Non è stato possibile ripristinare la bozza.")
+      showToast("Errore durante il ripristino della bozza.", "error")
+    } finally {
+      setRestoringDraftId(null)
+      setDraftToRestore(null)
+    }
+  }, [draftToRestore, fetchCourses, showToast])
+
   return (
     <div className="min-h-screen bg-zinc-50 py-10 text-zinc-900">
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 lg:px-6">
@@ -316,7 +355,10 @@ export default function CoursesListPage() {
           )}
 
           <div className="divide-y divide-zinc-100">
-            {[...drafts, ...courses].map((course) => {
+            {[
+              ...drafts.filter((item) => !item.deleted_at),
+              ...courses,
+            ].map((course) => {
               const baseSocialUrl =
                 process.env.NEXT_PUBLIC_SOCIAL_URL ??
                 process.env.SOCIAL_URL ??
@@ -368,6 +410,12 @@ export default function CoursesListPage() {
                 })
                 : null
 
+              const publishedCourseId = Number(course.course_id ?? 0)
+              const restorableDraft =
+                !course.isDraft && publishedCourseId
+                  ? restoreDraftByCourseId.get(publishedCourseId) ?? null
+                  : null
+
               return (
                 <article
                   key={course.id}
@@ -397,7 +445,7 @@ export default function CoursesListPage() {
                             Bozza
                           </span>
                         ) : <span className="rounded-full bg-zinc-100 px-2 py-0.5 font-mono text-[10px] text-zinc-700">
-                          ID: {course.id}
+                          ID: {course.course_id ?? "-"}
                         </span>}
                       </h2>
                       {category && (
@@ -526,6 +574,23 @@ export default function CoursesListPage() {
                           </div>
                         </>
                       )}
+                      {!course.isDraft && restorableDraft && (
+                        <div className="relative group/action">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon-sm"
+                            aria-label="Ripristina bozza"
+                            disabled={restoringDraftId === restorableDraft.id}
+                            onClick={() => setDraftToRestore(restorableDraft)}
+                          >
+                            <RotateCcw />
+                          </Button>
+                          <span className="pointer-events-none absolute -top-8 left-1/2 z-10 -translate-x-1/2 rounded bg-zinc-900 px-2 py-1 text-[10px] font-medium whitespace-nowrap text-white opacity-0 shadow transition-opacity group-hover/action:opacity-100">
+                            Ripristina bozza
+                          </span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </article>
@@ -574,6 +639,33 @@ export default function CoursesListPage() {
               disabled={!!draftToDelete && deletingId === draftToDelete.id}
             >
               Conferma eliminazione
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog
+        open={!!draftToRestore}
+        onOpenChange={(open: boolean) => {
+          if (!open) {
+            setDraftToRestore(null)
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Ripristinare questa bozza?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Verranno rimossi dal sito i record del corso pubblicato collegati a questa
+              bozza (corso, moduli e associazioni SCORM) e la bozza tornerà attiva.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annulla</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmRestoreDraft}
+              disabled={!!draftToRestore && restoringDraftId === draftToRestore.id}
+            >
+              Conferma ripristino
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

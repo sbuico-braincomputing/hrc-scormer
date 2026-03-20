@@ -9,17 +9,19 @@ type DraftRow = {
   data: unknown
   created_at: Date
   updated_at: Date
+  deleted_at?: Date | null
+  published_course_id?: number | null
 }
 
 type DraftInsertResult = {
   insertId: number | bigint
 }
 
-function isMissingDeletedAtColumn(error: unknown) {
+function isMissingColumn(error: unknown, columnName: string) {
   if (!error || typeof error !== "object") return false
   const candidate = error as { code?: unknown; sqlMessage?: unknown }
   if (candidate.code === "ER_BAD_FIELD_ERROR") {
-    return String(candidate.sqlMessage ?? "").includes("deleted_at")
+    return String(candidate.sqlMessage ?? "").includes(columnName)
   }
   return false
 }
@@ -28,24 +30,44 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const q = searchParams.get("q")?.trim().toLowerCase() ?? ""
+    const includeDeleted = searchParams.get("includeDeleted") === "1"
 
     let draftRows: DraftRow[]
     try {
-      draftRows = (await (db as any)
+      const query = (db as any)
         .selectFrom(`${DATABASE_PREFIX}drafts`)
-        .select(["id", "data", "created_at", "updated_at"])
-        .where("deleted_at", "is", null)
+        .select([
+          "id",
+          "data",
+          "created_at",
+          "updated_at",
+          "deleted_at",
+          "published_course_id",
+        ])
         .orderBy("created_at", "desc")
-        .execute()) as DraftRow[]
+      draftRows = (await (includeDeleted
+        ? query
+        : query.where("deleted_at", "is", null)
+      ).execute()) as DraftRow[]
     } catch (error) {
-      if (!isMissingDeletedAtColumn(error)) {
+      const missingDeletedAt = isMissingColumn(error, "deleted_at")
+      const missingPublishedCourseId = isMissingColumn(error, "published_course_id")
+      if (!missingDeletedAt && !missingPublishedCourseId) {
         throw error
       }
-      draftRows = (await (db as any)
+
+      // Compatibilita con schemi DB parzialmente aggiornati:
+      // - se manca solo published_course_id, filtriamo comunque deleted_at
+      // - se manca anche deleted_at, non possiamo distinguere bozze cancellate
+      const fallbackQuery = (db as any)
         .selectFrom(`${DATABASE_PREFIX}drafts`)
         .select(["id", "data", "created_at", "updated_at"])
         .orderBy("created_at", "desc")
-        .execute()) as DraftRow[]
+
+      draftRows = (await (missingDeletedAt || includeDeleted
+        ? fallbackQuery
+        : fallbackQuery.where("deleted_at", "is", null)
+      ).execute()) as DraftRow[]
     }
 
     const parsedDrafts = draftRows.map((row) => {
@@ -58,6 +80,8 @@ export async function GET(request: NextRequest) {
         isDraft: true,
         created_at: row.created_at,
         updated_at: row.updated_at,
+        deleted_at: row.deleted_at ?? null,
+        published_course_id: row.published_course_id ?? null,
       }
     })
 

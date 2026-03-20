@@ -49,11 +49,11 @@ type FtpTargetConfig = {
   imagePaths: string[]
 }
 
-function isMissingDeletedAtColumn(error: unknown) {
+function isMissingColumn(error: unknown, columnName: string) {
   if (!error || typeof error !== "object") return false
   const candidate = error as { code?: unknown; sqlMessage?: unknown }
   if (candidate.code === "ER_BAD_FIELD_ERROR") {
-    return String(candidate.sqlMessage ?? "").includes("deleted_at")
+    return String(candidate.sqlMessage ?? "").includes(columnName)
   }
   return false
 }
@@ -104,7 +104,7 @@ async function loadDraftPayload(numericId: number) {
       .where("deleted_at", "is", null)
       .executeTakeFirst()) as DraftRow | undefined
   } catch (error) {
-    if (!isMissingDeletedAtColumn(error)) {
+    if (!isMissingColumn(error, "deleted_at")) {
       throw error
     }
     draft = (await (db as any)
@@ -554,12 +554,18 @@ export async function POST(
       try {
         await (db as any)
           .updateTable(`${DATABASE_PREFIX}drafts`)
-          .set({ deleted_at: new Date() })
+          .set({
+            deleted_at: new Date(),
+            published_course_id: insertResult.nextCourseId,
+          })
           .where("id", "=", numericId)
           .where("deleted_at", "is", null)
           .executeTakeFirst()
       } catch (error) {
-        if (!isMissingDeletedAtColumn(error)) {
+        if (
+          !isMissingColumn(error, "deleted_at") &&
+          !isMissingColumn(error, "published_course_id")
+        ) {
           throw error
         }
         await (db as any)
