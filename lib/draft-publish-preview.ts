@@ -212,8 +212,25 @@ function resolveVideoDocumentId(module: Module): number | null {
   return null
 }
 
-function serializeTrainers(trainers: Trainer[] | null | undefined) {
-  return JSON.stringify(Array.isArray(trainers) ? trainers : [])
+function formatModuleTrainers(trainers: Trainer[] | null | undefined) {
+  const normalized = Array.isArray(trainers) ? trainers : []
+  if (normalized.length === 0) return ""
+
+  const namesAndRoles = normalized
+    .map((trainer) => {
+      const name = (trainer?.name ?? "").trim()
+      const role = (trainer?.role ?? "").trim()
+      if (!name && !role) return ""
+      if (!name) return role
+      if (!role) return name
+      return `${name}, ${role}`
+    })
+    .filter(Boolean)
+
+  const company = (normalized[0]?.company ?? "").trim()
+  if (namesAndRoles.length === 0) return company
+  if (!company) return namesAndRoles.join(" e ")
+  return `${namesAndRoles.join(" e ")} ${company}`
 }
 
 export async function buildPublishPreview(
@@ -284,7 +301,7 @@ export async function buildPublishPreview(
     const moduleIndex = index + 1
     const moduleVar = `@new_module_id_${moduleIndex}`
     const moduleOrder = String(moduleIndex)
-    const trainersJson = serializeTrainers(module.trainers)
+    const trainersText = formatModuleTrainers(module.trainers)
 
     moduleSqlRows.push(
       [
@@ -293,14 +310,14 @@ export async function buildPublishPreview(
         "  module_title,",
         "  module_description,",
         "  module_order,",
-        "  module_trainers",
+        "  module_trainers,",
         "  module_status",
         ") VALUES (",
         "  @new_course_id,",
         `  ${toSqlLiteral((module.title ?? "").trim() || null)},`,
         `  ${toSqlLiteral((module.description ?? "").trim() || null)},`,
         `  ${toSqlLiteral(moduleOrder)},`,
-        `  ${toSqlLiteral(trainersJson)},`,
+        `  ${toSqlLiteral(trainersText)},`,
         "  1",
         ");",
         `SET ${moduleVar} = LAST_INSERT_ID();`,
